@@ -853,9 +853,6 @@ export const PoManagement: React.FC<PoManagementProps> = ({
                             {po.supplierCode}
                           </span>
                         </div>
-                        <span className="text-[11px] text-slate-600 block truncate mt-0.5" title={po.destinationStockpile}>
-                          {po.destinationStockpile}
-                        </span>
                       </td>
 
                       <td className="px-2.5 py-2.5 text-right whitespace-nowrap font-bold text-slate-900">
