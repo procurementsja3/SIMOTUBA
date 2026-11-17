@@ -14,7 +14,11 @@ import {
   Pencil,
   FileSpreadsheet,
   RotateCcw,
-  FilterX
+  FilterX,
+  Sparkles,
+  Truck,
+  Loader2,
+  Check
 } from 'lucide-react';
 import { PurchaseOrder, ArrivalSchedule, CoalTransaction } from '../types/coal';
 
@@ -58,6 +62,23 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
   const [editError, setEditError] = useState<string | null>(null);
   const [deletingSchedule, setDeletingSchedule] = useState<ArrivalSchedule | null>(null);
   const [inputMode, setInputMode] = useState<'MULTI'>('MULTI');
+
+  // AI Schedule Advice state
+  interface AiScheduleAdvice {
+    ringkasanStrategi: string;
+    rekomendasiDuaRitHarian: string;
+    analisisAntreanDanStockpile: string;
+    saranAksiCepat: string[];
+    usulPembagianBaris?: Array<{
+      tanggalEta: string;
+      beratKg: number;
+      jumlahArmada: number;
+      keterangan: string;
+    }>;
+  }
+  const [aiAdvice, setAiAdvice] = useState<AiScheduleAdvice | null>(null);
+  const [isLoadingAiAdvice, setIsLoadingAiAdvice] = useState(false);
+  const [aiAdviceError, setAiAdviceError] = useState<string | null>(null);
 
   // Per-column search filters for table headers
   const [colSearchId, setColSearchId] = useState('');
@@ -192,6 +213,73 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
   const poScheduleCount = poExistingSchedules.length;
   const remainingQuota = Math.max(0, MAX_SCHEDULES_PER_PO - poScheduleCount);
   const isQuotaFull = poScheduleCount >= MAX_SCHEDULES_PER_PO;
+
+  const poRemainingKg = currentPo
+    ? Math.max(0, Number(currentPo.targetTonnage || 0) - Number(currentPo.receivedTonnage || 0))
+    : 0;
+  const poScheduledKg = poExistingSchedules
+    .filter((s) => s.status !== 'CANCELLED')
+    .reduce((sum, s) => sum + Number(s.estimatedTonnage || 0), 0);
+  const poUnscheduledKg = Math.max(0, poRemainingKg - poScheduledKg);
+
+  // Per-date aggregation (combining existing active schedules + current modal draft rows)
+  const sameDayOverview = (() => {
+    const map = new Map<
+      string,
+      {
+        date: string;
+        existingSchedulesSameDate: number;
+        existingTrucksSameDate: number;
+        existingTonnageSameDate: number;
+        draftRowsSameDate: number;
+        draftTrucksSameDate: number;
+        draftTonnageSameDate: number;
+      }
+    >();
+
+    const ensureEntry = (date: string) => {
+      if (!map.has(date)) {
+        map.set(date, {
+          date,
+          existingSchedulesSameDate: 0,
+          existingTrucksSameDate: 0,
+          existingTonnageSameDate: 0,
+          draftRowsSameDate: 0,
+          draftTrucksSameDate: 0,
+          draftTonnageSameDate: 0,
+        });
+      }
+      return map.get(date)!;
+    };
+
+    schedules.forEach((sch) => {
+      if (sch.status === 'CANCELLED' || !sch.etaDateTime) return;
+      const dateKey = sch.etaDateTime.slice(0, 10);
+      const entry = ensureEntry(dateKey);
+      entry.existingSchedulesSameDate += 1;
+      entry.existingTrucksSameDate += Math.max(1, Number(sch.estimatedTruckCount || 1));
+      entry.existingTonnageSameDate += Number(sch.estimatedTonnage || 0);
+    });
+
+    multiRows.forEach((row) => {
+      if (!row.etaDateTime) return;
+      const dateKey = row.etaDateTime.slice(0, 10);
+      const entry = ensureEntry(dateKey);
+      entry.draftRowsSameDate += 1;
+      entry.draftTrucksSameDate += Math.max(1, Number(row.estimatedTruckCount || 1));
+      entry.draftTonnageSameDate += Number(row.estimatedTonnage || 0);
+    });
+
+    return Array.from(map.values())
+      .filter((d) => d.draftRowsSameDate > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  })();
+
+  const multiRitDays = sameDayOverview.filter(
+    (d) =>
+      d.existingTrucksSameDate + d.draftTrucksSameDate >= 2 ||
+      d.existingSchedulesSameDate + d.draftRowsSameDate >= 2
+  );
 
   const OPERATIONAL_PROGRESS_STATUSES = new Set([
     'ARRIVED_GATE',
@@ -385,6 +473,8 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
   // Handle PO Change in modal
   const handlePoChange = (newPoId: string) => {
     setSelectedPoId(newPoId);
+    setAiAdvice(null);
+    setAiAdviceError(null);
     const count = schedules.filter((s) => s.poId === newPoId).length;
     const remaining = Math.max(0, MAX_SCHEDULES_PER_PO - count);
 
@@ -491,6 +581,131 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
     }
     setMultiRows(
       multiRows.map((r) => (r.id === rowId ? { ...r, [field]: cleanVal } : r))
+    );
+  };
+
+  // Preset: 2 Rit Terpisah dalam 1 Hari (Sesi Pagi & Sesi Siang — Check-in Security terpisah per rit)
+  const handleApplyTwoRitSplit = () => {
+    if (remainingQuota < 2) {
+      setCreateError(
+        `Sisa slot jadwal PO ini tinggal ${remainingQuota}. Minimal dibutuhkan 2 slot untuk membuat 2 rit terpisah.`
+      );
+      return;
+    }
+    setCreateError(null);
+    const targetDate =
+      (multiRows[0]?.etaDateTime || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const targetDailyKg =
+      poUnscheduledKg > 0 && poUnscheduledKg < 60000 ? poUnscheduledKg : 60000;
+    const rit1Kg = Math.round(targetDailyKg / 2);
+    const rit2Kg = Math.max(1, targetDailyKg - rit1Kg);
+    const baseIdx = poScheduleCount;
+
+    setMultiRows([
+      {
+        id: `row-2rit-1-${Date.now()}`,
+        etaDateTime: targetDate,
+        estimatedTonnage: rit1Kg,
+        estimatedTruckCount: 1,
+        remarks: `PENGIRIMAN BATUBARA RIT KE-${baseIdx + 1} (ARMADA 1 - SESI PAGI 08:00)`,
+      },
+      {
+        id: `row-2rit-2-${Date.now()}`,
+        etaDateTime: targetDate,
+        estimatedTonnage: rit2Kg,
+        estimatedTruckCount: 1,
+        remarks: `PENGIRIMAN BATUBARA RIT KE-${baseIdx + 2} (ARMADA 2 - SESI SIANG 13:00)`,
+      },
+    ]);
+  };
+
+  // Request AI Dispatch Advisor from backend Gemini endpoint
+  const handleRequestAiAdvice = async () => {
+    if (!currentPo) {
+      setAiAdviceError('Pilih Purchase Order aktif terlebih dahulu.');
+      return;
+    }
+    setIsLoadingAiAdvice(true);
+    setAiAdviceError(null);
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const res = await fetch('/api/gemini/schedule-advice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          po: {
+            poNumber: currentPo.poNumber,
+            supplierName: currentPo.supplierName,
+            targetTonnage: currentPo.targetTonnage,
+            receivedTonnage: currentPo.receivedTonnage,
+            remainingTonnage: poRemainingKg,
+            destinationStockpile: currentPo.destinationStockpile,
+            tolerancePercentage: currentPo.tolerancePercentage,
+            calorieMin: currentPo.specs?.calorieMin,
+            existingScheduleCount: poScheduleCount,
+            remainingSlotCount: remainingQuota,
+          },
+          draftRows: multiRows.map((r) => ({
+            etaDateTime: r.etaDateTime,
+            estimatedTonnage: Number(r.estimatedTonnage || 0),
+            estimatedTruckCount: Math.max(1, Number(r.estimatedTruckCount || 1)),
+            remarks: r.remarks,
+          })),
+          sameDaySummary: sameDayOverview,
+        }),
+      });
+
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(
+          'Endpoint Saran AI (/api/gemini/schedule-advice) tidak tersedia pada hosting statis. Fitur Saran AI aktif otomatis saat dijalankan melalui server full-stack (AI Studio / Node.js).'
+        );
+      }
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || `Permintaan Saran AI gagal (HTTP ${res.status}).`);
+      }
+
+      setAiAdvice(data.advice);
+    } catch (err: unknown) {
+      const isTimeout = err instanceof DOMException && err.name === 'AbortError';
+      const msg = isTimeout
+        ? 'Waktu analisis AI habis (>15 detik). Silakan klik "Minta Saran AI" untuk mencoba lagi.'
+        : err instanceof Error
+          ? err.message
+          : 'Gagal mengambil Saran AI. Periksa koneksi atau konfigurasi server.';
+      setAiAdviceError(msg);
+    } finally {
+      window.clearTimeout(timeoutId);
+      setIsLoadingAiAdvice(false);
+    }
+  };
+
+  const handleApplyAiSuggestedRows = () => {
+    const suggested = aiAdvice?.usulPembagianBaris || [];
+    if (suggested.length === 0) return;
+    if (remainingQuota <= 0) {
+      setCreateError('Kuota 20 jadwal untuk PO ini sudah penuh.');
+      return;
+    }
+    setCreateError(null);
+    const usable = suggested.slice(0, remainingQuota);
+    setMultiRows(
+      usable.map((item, idx) => ({
+        id: `row-ai-${Date.now()}-${idx}`,
+        etaDateTime:
+          item.tanggalEta && /^\d{4}-\d{2}-\d{2}/.test(item.tanggalEta)
+            ? item.tanggalEta.slice(0, 10)
+            : new Date().toISOString().slice(0, 10),
+        estimatedTonnage: Math.max(1, Math.round(Number(item.beratKg) || 30000)),
+        estimatedTruckCount: Math.max(1, Math.round(Number(item.jumlahArmada) || 1)),
+        remarks: (item.keterangan || `PENGIRIMAN BATUBARA RIT KE-${poScheduleCount + idx + 1}`).toUpperCase(),
+      }))
     );
   };
 
@@ -633,6 +848,8 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                   setSelectedPoId(targetPoId);
                 }
                 setCreateError(null);
+                setAiAdvice(null);
+                setAiAdviceError(null);
                 setMultiRows([createDefaultFirstRow(targetPoId)]);
                 setIsModalOpen(true);
               }}
@@ -1333,6 +1550,159 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                     </button>
                   </div>
                 </div>
+
+                {/* Rekomendasi Harian (2 Rit / 2 Armada) & Saran AI */}
+                {currentPo && (
+                  <div className="bg-sky-50/70 border border-sky-200 rounded-xl p-3.5 space-y-3 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Truck className="w-4 h-4 text-sky-700 shrink-0" />
+                        <div>
+                          <div className="font-bold text-slate-900">
+                            Rekomendasi Pengiriman 2 Rit / 2 Armada per Hari &amp; Saran AI
+                          </div>
+                          <div className="text-[11px] text-slate-600">
+                            Sisa belum terjadwal:{' '}
+                            <strong className="font-mono-num text-slate-900">
+                              {poUnscheduledKg.toLocaleString('id-ID')} Kg
+                            </strong>{' '}
+                            (estimasi{' '}
+                            <strong className="font-mono-num text-amber-800">
+                              ~{Math.max(1, Math.ceil(poUnscheduledKg / 30000))} rit
+                            </strong>{' '}
+                            @ 30 Ton)
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleRequestAiAdvice}
+                        disabled={isLoadingAiAdvice}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-xs font-bold transition-colors shadow-xs cursor-pointer"
+                      >
+                        {isLoadingAiAdvice ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                        ) : (
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        )}
+                        <span>{isLoadingAiAdvice ? 'Menganalisis AI...' : 'Minta Saran AI'}</span>
+                      </button>
+                    </div>
+
+                    {/* Quick Preset untuk 2 Rit / 2 Armada dalam 1 Hari */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleApplyTwoRitSplit}
+                        disabled={remainingQuota < 2 || isQuotaFull}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-white hover:bg-sky-100 disabled:opacity-50 text-sky-900 border border-sky-300 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
+                        title="Buat 2 baris terpisah di hari yang sama (Pagi & Siang) agar bisa Check-In Security per truk"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-sky-700" />
+                        <span>Rekomendasi: 2 Rit Terpisah (1 Hari)</span>
+                      </button>
+                    </div>
+
+                    {/* Live Same-Day 2+ Rit / 2+ Armada Operational Advisor */}
+                    {multiRitDays.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {multiRitDays.map((day) => {
+                          const totalTrucks = day.existingTrucksSameDate + day.draftTrucksSameDate;
+                          const totalKg = day.existingTonnageSameDate + day.draftTonnageSameDate;
+                          return (
+                            <div
+                              key={day.date}
+                              className="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-[11px] text-amber-950 space-y-1"
+                            >
+                              <div className="font-bold flex flex-wrap items-center justify-between gap-1">
+                                <span>
+                                  Rekomendasi Jadwal Padat ({formatDateOnly(day.date)}):{' '}
+                                  <span className="font-mono-num">
+                                    {totalTrucks} Armada / Rit ({totalKg.toLocaleString('id-ID')} Kg)
+                                  </span>
+                                </span>
+                                <span className="px-2 py-0.5 rounded bg-amber-200/70 text-amber-950 font-semibold text-[10px]">
+                                  2+ Rit Harian (Tiket Terpisah)
+                                </span>
+                              </div>
+                              <p className="text-amber-900 leading-relaxed">
+                                Atur jeda kedatangan ±3–4 jam (misal <strong>Armada 1: Pagi 08:00–10:00</strong> &amp;{' '}
+                                <strong>Armada 2: Siang 13:00–15:00</strong>) agar tidak antre di Pos Security,
+                                Jembatan Timbang, dan area bongkar {currentPo.destinationStockpile || 'Stockpile'}.
+                                {day.existingTrucksSameDate > 0 && (
+                                  <span>
+                                    {' '}
+                                    (Sudah ada {day.existingTrucksSameDate} armada aktif dari jadwal tersimpan pada tanggal ini.)
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        Tips 1 hari 2 kiriman: klik <strong>Rekomendasi: 2 Rit Terpisah (1 Hari)</strong> untuk membuat jadwal Armada 1 (Sesi Pagi) &amp; Armada 2 (Sesi Siang) dengan tiket Check-In Security masing-masing.
+                      </p>
+                    )}
+
+                    {/* Error dari Endpoint Saran AI */}
+                    {aiAdviceError && (
+                      <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-300 text-rose-900 text-[11px] flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                        <span>{aiAdviceError}</span>
+                      </div>
+                    )}
+
+                    {/* Hasil Saran AI Gemini */}
+                    {aiAdvice && (
+                      <div className="p-3 rounded-xl bg-white border border-sky-300 space-y-2.5 shadow-2xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
+                          <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                            <Sparkles className="w-4 h-4 text-amber-500" />
+                            <span>Hasil Analisis &amp; Saran AI</span>
+                          </span>
+                          {aiAdvice.usulPembagianBaris && aiAdvice.usulPembagianBaris.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={handleApplyAiSuggestedRows}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold transition-colors cursor-pointer"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Terapkan Usulan Baris AI ({Math.min(aiAdvice.usulPembagianBaris.length, remainingQuota)} data)</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="space-y-1.5 text-[11px] text-slate-700 leading-relaxed">
+                          <div>
+                            <strong className="text-slate-900">Strategi Kuota PO:</strong>{' '}
+                            {aiAdvice.ringkasanStrategi}
+                          </div>
+                          <div>
+                            <strong className="text-slate-900">Saran 2 Rit / 2 Armada per Hari:</strong>{' '}
+                            {aiAdvice.rekomendasiDuaRitHarian}
+                          </div>
+                          <div>
+                            <strong className="text-slate-900">Antrean &amp; Stockpile:</strong>{' '}
+                            {aiAdvice.analisisAntreanDanStockpile}
+                          </div>
+                          {aiAdvice.saranAksiCepat && aiAdvice.saranAksiCepat.length > 0 && (
+                            <div>
+                              <strong className="text-slate-900 block mb-0.5">Langkah Disarankan:</strong>
+                              <ul className="list-disc list-inside space-y-0.5 text-slate-700">
+                                {aiAdvice.saranAksiCepat.map((item, i) => (
+                                  <li key={i}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Rows List */}
                 <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
