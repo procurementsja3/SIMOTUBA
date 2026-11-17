@@ -1,0 +1,552 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // GLOBAL HELPER PRIMITIVES
+    // =========================================================================
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerified() && request.auth.token.email == 'dannydeep1985@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerified() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isOwner(userId) {
+      return isVerified() && request.auth.uid == userId;
+    }
+
+    function getUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveStaff() {
+      return isAdmin() || (
+        isVerified() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        getUserDoc().active == true &&
+        getUserDoc().role != 'VIEWER'
+      );
+    }
+
+    function hasRole(targetRole) {
+      return isAdmin() || (
+        isActiveStaff() &&
+        getUserDoc().role == targetRole
+      );
+    }
+
+    function isValidAllowedUids(listVal) {
+      return listVal is list &&
+        listVal.size() >= 1 &&
+        listVal.size() <= 25 &&
+        listVal[0] is string &&
+        listVal[0].size() >= 1 &&
+        listVal[0].size() <= 128;
+    }
+
+    function isNonEmptyStr(val, maxLen) {
+      return val is string && val.size() >= 1 && val.size() <= maxLen;
+    }
+
+    function isOptionalStr(val, maxLen) {
+      return val is string && val.size() <= maxLen;
+    }
+
+    // =========================================================================
+    // VALIDATION BLUEPRINTS
+    // =========================================================================
+    function isValidAdminDoc(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'grantedBy', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'grantedBy', 'createdAt']) &&
+        data.uid == userId &&
+        isValidId(data.uid) &&
+        isNonEmptyStr(data.email, 160) &&
+        isNonEmptyStr(data.grantedBy, 128) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'active', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'active', 'createdAt', 'updatedAt', 'updatedBy']) &&
+        data.uid == userId &&
+        isValidId(data.uid) &&
+        isNonEmptyStr(data.email, 160) &&
+        isNonEmptyStr(data.displayName, 100) &&
+        data.role in ['ADMIN', 'SECURITY', 'TIMBANG_MASUK', 'BONGKAR', 'TIMBANG_KELUAR', 'QC_LAB', 'VIEWER'] &&
+        data.active is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        (!('updatedBy' in data) || isOptionalStr(data.updatedBy, 128));
+    }
+
+    function isValidSpecsMap(specs) {
+      return specs is map &&
+        specs.keys().hasAll(['calorieMin', 'moistureMax', 'ashMax', 'sulfurMax', 'hgiMin']) &&
+        specs.keys().hasOnly(['calorieMin', 'moistureMax', 'ashMax', 'sulfurMax', 'hgiMin']) &&
+        specs.calorieMin is number && specs.calorieMin >= 0 &&
+        specs.moistureMax is number && specs.moistureMax >= 0 &&
+        specs.ashMax is number && specs.ashMax >= 0 &&
+        specs.sulfurMax is number && specs.sulfurMax >= 0 &&
+        specs.hgiMin is number && specs.hgiMin >= 0;
+    }
+
+    function isValidPurchaseOrder(data, poId) {
+      return data.keys().hasAll([
+          'id', 'poNumber', 'supplierName', 'supplierCode', 'contractDate',
+          'targetTonnage', 'receivedTonnage', 'specs', 'tolerancePercentage',
+          'pricePerTon', 'destinationStockpile', 'status', 'createdBy',
+          'allowedUids', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'poNumber', 'supplierName', 'supplierCode', 'contractDate',
+          'targetTonnage', 'receivedTonnage', 'specs', 'tolerancePercentage',
+          'pricePerTon', 'destinationStockpile', 'status', 'notes', 'createdBy',
+          'allowedUids', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id == poId &&
+        isValidId(data.id) &&
+        isNonEmptyStr(data.poNumber, 64) &&
+        isNonEmptyStr(data.supplierName, 120) &&
+        isOptionalStr(data.supplierCode, 32) &&
+        isNonEmptyStr(data.contractDate, 32) &&
+        data.targetTonnage is number && data.targetTonnage > 0 &&
+        data.receivedTonnage is number && data.receivedTonnage >= 0 &&
+        isValidSpecsMap(data.specs) &&
+        data.tolerancePercentage is number && data.tolerancePercentage >= 0 && data.tolerancePercentage <= 50 &&
+        data.pricePerTon is number && data.pricePerTon >= 0 &&
+        isNonEmptyStr(data.destinationStockpile, 120) &&
+        data.status in ['ACTIVE', 'CLOSED', 'HOLD'] &&
+        (!('notes' in data) || isOptionalStr(data.notes, 500)) &&
+        isValidId(data.createdBy) &&
+        isValidAllowedUids(data.allowedUids) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSchedule(data, scheduleId) {
+      return data.keys().hasAll([
+          'id', 'poId', 'poNumber', 'supplierName', 'etaDateTime',
+          'estimatedTonnage', 'status', 'createdBy', 'allowedUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'poId', 'poNumber', 'supplierName', 'etaDateTime',
+          'estimatedTonnage', 'estimatedTruckCount', 'originMine', 'status',
+          'remarks', 'createdBy', 'allowedUids', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id == scheduleId &&
+        isValidId(data.id) &&
+        isValidId(data.poId) &&
+        isNonEmptyStr(data.poNumber, 64) &&
+        isNonEmptyStr(data.supplierName, 120) &&
+        isNonEmptyStr(data.etaDateTime, 64) &&
+        data.estimatedTonnage is number && data.estimatedTonnage > 0 &&
+        (!('estimatedTruckCount' in data) || (data.estimatedTruckCount is number && data.estimatedTruckCount >= 1)) &&
+        (!('originMine' in data) || isOptionalStr(data.originMine, 120)) &&
+        data.status in [
+          'SCHEDULED', 'ON_WAY', 'ARRIVED_GATE', 'TIMBANG_MASUK', 'BONGKAR',
+          'TIMBANG_KELUAR', 'GATE_OUT', 'COMPLETED', 'REJECTED', 'OVERDUE', 'CANCELLED'
+        ] &&
+        (!('remarks' in data) || isOptionalStr(data.remarks, 300)) &&
+        isValidId(data.createdBy) &&
+        isValidAllowedUids(data.allowedUids) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTxCore(data, txId) {
+      return data.keys().hasAll([
+          'id', 'ticketNumber', 'queueNumber', 'poId', 'poNumber', 'supplierName',
+          'transporterName', 'vehiclePlate', 'driverName', 'gateInTime',
+          'securityOfficer', 'tarpCondition', 'suratJalanNumber', 'suratJalanDate',
+          'suratJalanWeight', 'suratJalanVerified', 'grossWeight', 'tareWeight',
+          'nettoWeight', 'nettoTons', 'weightDifference', 'shrinkagePercentage',
+          'status', 'syncedToGoogleSheet', 'createdBy', 'allowedUids',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ticketNumber', 'queueNumber', 'scheduleId', 'poId', 'poNumber',
+          'supplierName', 'transporterName', 'vehiclePlate', 'driverName',
+          'driverPhone', 'driverIdNumber', 'gateInTime', 'securityOfficer',
+          'sealNumber', 'tarpCondition', 'securityNotes', 'suratJalanNumber',
+          'suratJalanDate', 'scheduledDeliveryDate', 'suratJalanWeight',
+          'suratJalanVerified', 'ritCategory', 'ritRemarks', 'weighInTime',
+          'grossWeight', 'weighInOperator', 'weighInScaleId', 'initialDiscrepancy',
+          'qcTime', 'qcInspector', 'sampleId', 'samplingMethod',
+          'visualAssessment', 'labResults', 'qcStatus', 'qcDecisionNotes',
+          'assignedStockpile', 'unloadingStartTime', 'unloadingEndTime',
+          'unloadingStockpile', 'unloadingChecker', 'cleanDumpVerified',
+          'unloadingNotes', 'weighOutTime', 'tareWeight', 'weighOutOperator',
+          'weighOutScaleId', 'nettoWeight', 'nettoTons', 'weightDifference',
+          'shrinkagePercentage', 'toleranceStatus', 'claimPenaltyKg',
+          'gateOutTime', 'gateOutOfficer', 'status', 'syncedToGoogleSheet',
+          'lastSyncedAt', 'createdBy', 'allowedUids', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id == txId &&
+        isValidId(data.id) &&
+        isValidId(data.poId) &&
+        isValidId(data.createdBy) &&
+        isValidAllowedUids(data.allowedUids) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        data.status in [
+          'SCHEDULED', 'GATE_IN', 'TIMBANG_MASUK', 'QC_CHECK',
+          'BONGKAR', 'TIMBANG_KELUAR', 'GATE_OUT', 'COMPLETED', 'REJECTED'
+        ] &&
+        data.syncedToGoogleSheet is bool &&
+        (!('lastSyncedAt' in data) || (data.lastSyncedAt is string && data.lastSyncedAt.size() <= 64));
+    }
+
+    function isValidTxLogistics(data) {
+      return isNonEmptyStr(data.ticketNumber, 64) &&
+        isNonEmptyStr(data.queueNumber, 32) &&
+        (!('scheduleId' in data) || (data.scheduleId is string && data.scheduleId.size() <= 128)) &&
+        isNonEmptyStr(data.poNumber, 64) &&
+        isNonEmptyStr(data.supplierName, 120) &&
+        isOptionalStr(data.transporterName, 120) &&
+        isNonEmptyStr(data.vehiclePlate, 32) &&
+        isNonEmptyStr(data.driverName, 100) &&
+        (!('driverPhone' in data) || (data.driverPhone is string && data.driverPhone.size() <= 40)) &&
+        (!('driverIdNumber' in data) || (data.driverIdNumber is string && data.driverIdNumber.size() <= 64)) &&
+        isNonEmptyStr(data.gateInTime, 64) &&
+        isOptionalStr(data.securityOfficer, 100) &&
+        (!('sealNumber' in data) || (data.sealNumber is string && data.sealNumber.size() <= 64)) &&
+        data.tarpCondition in ['BAIK_RAPAT', 'RUSAK_ROBEK', 'TANPA_TERPAL'] &&
+        (!('securityNotes' in data) || (data.securityNotes is string && data.securityNotes.size() <= 300)) &&
+        isOptionalStr(data.suratJalanNumber, 64) &&
+        isNonEmptyStr(data.suratJalanDate, 32) &&
+        (!('scheduledDeliveryDate' in data) || (data.scheduledDeliveryDate is string && data.scheduledDeliveryDate.size() <= 32)) &&
+        data.suratJalanWeight is number && data.suratJalanWeight >= 0 &&
+        data.suratJalanVerified is bool &&
+        (!('ritCategory' in data) || (data.ritCategory is string && data.ritCategory.size() <= 32)) &&
+        (!('ritRemarks' in data) || (data.ritRemarks is string && data.ritRemarks.size() <= 200)) &&
+        (!('gateOutTime' in data) || (data.gateOutTime is string && data.gateOutTime.size() <= 64)) &&
+        (!('gateOutOfficer' in data) || (data.gateOutOfficer is string && data.gateOutOfficer.size() <= 100));
+    }
+
+    function isValidTxOperations(data) {
+      return (!('weighInTime' in data) || (data.weighInTime is string && data.weighInTime.size() <= 64)) &&
+        data.grossWeight is number && data.grossWeight >= 0 &&
+        (!('weighInOperator' in data) || (data.weighInOperator is string && data.weighInOperator.size() <= 100)) &&
+        (!('weighInScaleId' in data) || (data.weighInScaleId is string && data.weighInScaleId.size() <= 64)) &&
+        (!('initialDiscrepancy' in data) || data.initialDiscrepancy is number) &&
+        (!('qcTime' in data) || (data.qcTime is string && data.qcTime.size() <= 64)) &&
+        (!('qcInspector' in data) || (data.qcInspector is string && data.qcInspector.size() <= 100)) &&
+        (!('sampleId' in data) || (data.sampleId is string && data.sampleId.size() <= 64)) &&
+        (!('samplingMethod' in data) || (data.samplingMethod is string && data.samplingMethod.size() <= 64)) &&
+        (!('visualAssessment' in data) || data.visualAssessment is map) &&
+        (!('labResults' in data) || data.labResults is map) &&
+        (!('qcStatus' in data) || data.qcStatus in ['APPROVED', 'CONDITIONAL_PENALTY', 'REJECTED']) &&
+        (!('qcDecisionNotes' in data) || (data.qcDecisionNotes is string && data.qcDecisionNotes.size() <= 500)) &&
+        (!('assignedStockpile' in data) || (data.assignedStockpile is string && data.assignedStockpile.size() <= 120)) &&
+        (!('unloadingStartTime' in data) || (data.unloadingStartTime is string && data.unloadingStartTime.size() <= 64)) &&
+        (!('unloadingEndTime' in data) || (data.unloadingEndTime is string && data.unloadingEndTime.size() <= 64)) &&
+        (!('unloadingStockpile' in data) || (data.unloadingStockpile is string && data.unloadingStockpile.size() <= 120)) &&
+        (!('unloadingChecker' in data) || (data.unloadingChecker is string && data.unloadingChecker.size() <= 100)) &&
+        (!('cleanDumpVerified' in data) || data.cleanDumpVerified is bool) &&
+        (!('unloadingNotes' in data) || (data.unloadingNotes is string && data.unloadingNotes.size() <= 300)) &&
+        (!('weighOutTime' in data) || (data.weighOutTime is string && data.weighOutTime.size() <= 64)) &&
+        data.tareWeight is number && data.tareWeight >= 0 &&
+        (data.grossWeight == 0 || data.tareWeight == 0 || data.tareWeight < data.grossWeight) &&
+        (!('weighOutOperator' in data) || (data.weighOutOperator is string && data.weighOutOperator.size() <= 100)) &&
+        (!('weighOutScaleId' in data) || (data.weighOutScaleId is string && data.weighOutScaleId.size() <= 64)) &&
+        data.nettoWeight is number && data.nettoWeight >= 0 &&
+        data.nettoTons is number && data.nettoTons >= 0 &&
+        data.weightDifference is number &&
+        data.shrinkagePercentage is number &&
+        (!('toleranceStatus' in data) || data.toleranceStatus in ['WITHIN_TOLERANCE', 'EXCESS_SHRINKAGE', 'SURPLUS']) &&
+        (!('claimPenaltyKg' in data) || (data.claimPenaltyKg is number && data.claimPenaltyKg >= 0));
+    }
+
+    function isValidTransaction(data, txId) {
+      return isValidTxCore(data, txId) &&
+        isValidTxLogistics(data) &&
+        isValidTxOperations(data);
+    }
+
+    function isValidAuditLog(data, logId) {
+      return data.keys().hasAll([
+          'id', 'timestamp', 'actorUid', 'actorEmail', 'actorName',
+          'actorRole', 'action', 'entityType', 'entityId', 'summary'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'timestamp', 'actorUid', 'actorEmail', 'actorName',
+          'actorRole', 'action', 'entityType', 'entityId', 'summary', 'details'
+        ]) &&
+        data.id == logId &&
+        isValidId(data.id) &&
+        data.timestamp == request.time &&
+        data.actorUid == request.auth.uid &&
+        isOptionalStr(data.actorEmail, 160) &&
+        isNonEmptyStr(data.actorName, 100) &&
+        data.actorRole in ['ADMIN', 'SECURITY', 'TIMBANG_MASUK', 'BONGKAR', 'TIMBANG_KELUAR', 'QC_LAB', 'VIEWER'] &&
+        isNonEmptyStr(data.action, 64) &&
+        data.entityType in ['PO', 'SCHEDULE', 'TRANSACTION', 'SYSTEM', 'USER'] &&
+        isNonEmptyStr(data.entityId, 128) &&
+        isNonEmptyStr(data.summary, 300) &&
+        (!('details' in data) || isOptionalStr(data.details, 1000));
+    }
+
+    function isValidGoogleSheetSetting(data) {
+      return data.keys().hasAll(['webhookUrl', 'sheetName', 'autoSyncEnabled', 'updatedBy', 'updatedAt']) &&
+        data.keys().hasOnly(['webhookUrl', 'sheetName', 'autoSyncEnabled', 'updatedBy', 'updatedAt']) &&
+        isOptionalStr(data.webhookUrl, 500) &&
+        isNonEmptyStr(data.sheetName, 120) &&
+        data.autoSyncEnabled is bool &&
+        isValidId(data.updatedBy) &&
+        data.updatedAt is timestamp;
+    }
+
+    // =========================================================================
+    // COLLECTION MATCH RULES
+    // =========================================================================
+
+    // 1. /admins/{userId}
+    match /admins/{userId} {
+      allow get: if isVerified() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified() && isValidId(userId) && isValidAdminDoc(incoming(), userId) && (
+        (isBootstrappedAdmin() && request.auth.uid == userId && incoming().grantedBy == request.auth.uid && incoming().createdAt == request.time) ||
+        (isAdmin() && incoming().grantedBy == request.auth.uid && incoming().createdAt == request.time)
+      );
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(userId) && request.auth.uid != userId;
+    }
+
+    // 2. /users/{userId} (PII Isolated: email only readable by owner or admin)
+    match /users/{userId} {
+      allow get: if isVerified() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isVerified() && isValidId(userId) && isValidUserProfile(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time && (
+          // Bootstrapped admin can initialize own ADMIN profile
+          (isBootstrappedAdmin() && request.auth.uid == userId && incoming().role == 'ADMIN' && incoming().active == true) ||
+          // Standard self-registration: forced to inactive VIEWER (no self-assigned privilege!)
+          (request.auth.uid == userId && incoming().role == 'VIEWER' && incoming().active == false) ||
+          // Admin creating user profile
+          isAdmin()
+        );
+      allow update: if isVerified() && isValidId(userId) && isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          // Admin can modify role, active, updatedBy, displayName
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'role', 'active', 'updatedBy', 'updatedAt'])) ||
+          // Owner can ONLY update displayName (cannot touch role or active!)
+          (isOwner(userId) &&
+            incoming().role == existing().role &&
+            incoming().active == existing().active &&
+            incoming().email == existing().email &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']))
+        );
+      allow delete: if isAdmin() && isValidId(userId) && request.auth.uid != userId;
+    }
+
+    // 3. /purchase_orders/{poId}
+    match /purchase_orders/{poId} {
+      allow get: if isValidId(poId) && isActiveStaff();
+      allow list: if isBootstrappedAdmin() || (
+        isVerified() && (
+          (request.auth.uid in resource.data.allowedUids) ||
+          (resource.data.createdBy == request.auth.uid)
+        )
+      );
+      allow create: if isAdmin() &&
+        isValidId(poId) &&
+        isValidPurchaseOrder(incoming(), poId) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidId(poId) && isValidPurchaseOrder(incoming(), poId) &&
+        incoming().id == existing().id &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          // Tier 1: Admin full update (or sync allowedUids)
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'poNumber', 'supplierName', 'supplierCode', 'contractDate', 'targetTonnage',
+            'receivedTonnage', 'specs', 'tolerancePercentage', 'pricePerTon',
+            'destinationStockpile', 'status', 'notes', 'allowedUids', 'updatedAt'
+          ])) ||
+          // Tier 2: Security Gate Out can ONLY increment receivedTonnage when finalizing delivery
+          (hasRole('SECURITY') && incoming().diff(existing()).affectedKeys().hasOnly(['receivedTonnage', 'updatedAt']))
+        );
+      allow delete: if isAdmin() && isValidId(poId);
+    }
+
+    // 4. /arrival_schedules/{scheduleId}
+    match /arrival_schedules/{scheduleId} {
+      allow get: if isValidId(scheduleId) && isActiveStaff();
+      allow list: if isBootstrappedAdmin() || (
+        isVerified() && (
+          (request.auth.uid in resource.data.allowedUids) ||
+          (resource.data.createdBy == request.auth.uid)
+        )
+      );
+      allow create: if isAdmin() &&
+        isValidId(scheduleId) &&
+        isValidSchedule(incoming(), scheduleId) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/purchase_orders/$(request.resource.data.poId));
+      allow update: if isVerified() && isValidId(scheduleId) && isValidSchedule(incoming(), scheduleId) &&
+        incoming().id == existing().id &&
+        incoming().poId == existing().poId &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'poNumber', 'supplierName', 'etaDateTime', 'estimatedTonnage',
+            'estimatedTruckCount', 'originMine', 'status', 'remarks', 'allowedUids', 'updatedAt'
+          ])) ||
+          (isActiveStaff() && existing().status != 'CANCELLED' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
+        );
+      allow delete: if isAdmin() && isValidId(scheduleId);
+    }
+
+    // 5. /coal_transactions/{txId}
+    match /coal_transactions/{txId} {
+      allow get: if isValidId(txId) && isActiveStaff();
+      allow list: if isBootstrappedAdmin() || (
+        isVerified() && (
+          (request.auth.uid in resource.data.allowedUids) ||
+          (resource.data.createdBy == request.auth.uid)
+        )
+      );
+      allow create: if isVerified() &&
+        isValidId(txId) &&
+        isValidTransaction(incoming(), txId) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/purchase_orders/$(request.resource.data.poId)) && (
+          isAdmin() ||
+          (hasRole('SECURITY') && incoming().status in ['GATE_IN', 'TIMBANG_MASUK'])
+        );
+      allow update: if isVerified() && isValidId(txId) && isValidTransaction(incoming(), txId) &&
+        incoming().id == existing().id &&
+        incoming().poId == existing().poId &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          // Tier 1: Admin override / historical revision / cloud migration
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'ticketNumber', 'queueNumber', 'scheduleId',
+            'vehiclePlate', 'driverName', 'driverPhone', 'driverIdNumber', 'transporterName',
+            'sealNumber', 'suratJalanNumber', 'suratJalanDate', 'scheduledDeliveryDate',
+            'suratJalanWeight', 'suratJalanVerified', 'tarpCondition', 'securityNotes',
+            'ritCategory', 'ritRemarks', 'assignedStockpile', 'unloadingStockpile',
+            'grossWeight', 'tareWeight', 'initialDiscrepancy', 'nettoWeight', 'nettoTons',
+            'weightDifference', 'shrinkagePercentage', 'toleranceStatus', 'claimPenaltyKg',
+            'gateInTime', 'securityOfficer', 'weighInTime', 'weighInOperator', 'weighInScaleId',
+            'qcTime', 'qcInspector', 'sampleId', 'samplingMethod', 'visualAssessment',
+            'labResults', 'qcStatus', 'qcDecisionNotes',
+            'unloadingStartTime', 'unloadingEndTime', 'unloadingChecker', 'cleanDumpVerified', 'unloadingNotes',
+            'weighOutTime', 'weighOutOperator', 'weighOutScaleId',
+            'gateOutTime', 'gateOutOfficer', 'status', 'poNumber', 'supplierName',
+            'syncedToGoogleSheet', 'lastSyncedAt', 'allowedUids', 'updatedAt'
+          ])) ||
+          // Independent QC-PA Lab Update (Allowed both before & after terminal status)
+          (hasRole('QC_LAB') && incoming().diff(existing()).affectedKeys().hasOnly([
+            'sampleId', 'samplingMethod', 'visualAssessment', 'labResults',
+            'qcStatus', 'qcDecisionNotes', 'qcInspector', 'qcTime',
+            'assignedStockpile', 'status', 'updatedAt'
+          ])) ||
+          // Staff Google Sheet Sync Receipt Update (Allowed after Gate Out / Completion)
+          (isActiveStaff() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'syncedToGoogleSheet', 'lastSyncedAt', 'updatedAt'
+          ])) ||
+          // Terminal State Lock for Operational Stations: must NOT be COMPLETED or REJECTED
+          (existing().status != 'COMPLETED' && existing().status != 'REJECTED' && (
+            // Action: Security Gate In advance / Gate Out Checkout
+            (hasRole('SECURITY') && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'gateOutTime', 'gateOutOfficer', 'updatedAt'
+            ])) ||
+            // Action: Weighbridge Inbound (Gross)
+            (hasRole('TIMBANG_MASUK') && existing().status in ['GATE_IN', 'TIMBANG_MASUK'] &&
+              incoming().status == 'BONGKAR' &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'grossWeight', 'weighInTime', 'weighInOperator', 'weighInScaleId',
+                'initialDiscrepancy', 'status', 'updatedAt'
+              ])) ||
+            // Action: Unloading Stockpile
+            (hasRole('BONGKAR') && existing().status in ['BONGKAR', 'QC_CHECK'] &&
+              incoming().status == 'TIMBANG_KELUAR' &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'unloadingChecker', 'cleanDumpVerified', 'unloadingNotes',
+                'unloadingEndTime', 'status', 'updatedAt'
+              ])) ||
+            // Action: Weighbridge Outbound (Tare & Netto)
+            (hasRole('TIMBANG_KELUAR') && existing().status == 'TIMBANG_KELUAR' &&
+              incoming().status == 'GATE_OUT' &&
+              incoming().tareWeight > 0 &&
+              incoming().tareWeight < incoming().grossWeight &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'tareWeight', 'weighOutTime', 'weighOutOperator', 'weighOutScaleId',
+                'nettoWeight', 'nettoTons', 'weightDifference', 'shrinkagePercentage',
+                'toleranceStatus', 'claimPenaltyKg', 'gateOutOfficer', 'status', 'updatedAt'
+              ]))
+          ))
+        );
+      allow delete: if isAdmin() && isValidId(txId);
+    }
+
+    // 6. /audit_logs/{logId} (Append-only immutable audit log)
+    match /audit_logs/{logId} {
+      allow get: if isValidId(logId) && (isAdmin() || (isVerified() && existing().actorUid == request.auth.uid));
+      allow list: if isBootstrappedAdmin() || (
+        isVerified() &&
+        resource.data.actorUid == request.auth.uid
+      );
+      allow create: if isActiveStaff() && isValidId(logId) && isValidAuditLog(incoming(), logId);
+      allow update, delete: if false;
+    }
+
+    // 7. /settings/{settingId}
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId) && isActiveStaff();
+      allow list: if isBootstrappedAdmin();
+      allow create: if isAdmin() && isValidId(settingId) && isValidGoogleSheetSetting(incoming()) &&
+        incoming().updatedBy == request.auth.uid && incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(settingId) && isValidGoogleSheetSetting(incoming()) &&
+        incoming().updatedBy == request.auth.uid && incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'webhookUrl', 'sheetName', 'autoSyncEnabled', 'updatedBy', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(settingId);
+    }
+  }
+}

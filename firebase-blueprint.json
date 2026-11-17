@@ -1,0 +1,574 @@
+{
+  "entities": {
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Pengguna dengan hak akses Administrator / Supervisor sistem SIMOTUBA.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID admin."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 160,
+          "description": "Email Google terverifikasi admin."
+        },
+        "grantedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "UID admin yang memberikan akses."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp pemberian hak akses admin."
+        }
+      },
+      "required": ["uid", "email", "grantedBy", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Profil pengguna & peran RBAC petugas operasional terminal batubara.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "ADMIN",
+            "SECURITY",
+            "TIMBANG_MASUK",
+            "BONGKAR",
+            "TIMBANG_KELUAR",
+            "QC_LAB",
+            "VIEWER"
+          ]
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedBy": {
+          "type": "string",
+          "maxLength": 128
+        }
+      },
+      "required": ["uid", "email", "displayName", "role", "active", "createdAt", "updatedAt"]
+    },
+    "PurchaseOrder": {
+      "title": "PurchaseOrder",
+      "description": "Kontrak Purchase Order pengadaan batubara beserta target tonase dan batas toleransi.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "poNumber": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "supplierName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "supplierCode": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "contractDate": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "targetTonnage": {
+          "type": "number"
+        },
+        "receivedTonnage": {
+          "type": "number"
+        },
+        "specs": {
+          "type": "object"
+        },
+        "tolerancePercentage": {
+          "type": "number"
+        },
+        "pricePerTon": {
+          "type": "number"
+        },
+        "destinationStockpile": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ACTIVE", "CLOSED", "HOLD"]
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "poNumber",
+        "supplierName",
+        "contractDate",
+        "targetTonnage",
+        "receivedTonnage",
+        "tolerancePercentage",
+        "status",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ArrivalSchedule": {
+      "title": "ArrivalSchedule",
+      "description": "Jadwal estimasi kedatangan armada batubara (ETA) terikat ke Purchase Order.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "poId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "poNumber": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "supplierName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "etaDateTime": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 64
+        },
+        "estimatedTonnage": {
+          "type": "number"
+        },
+        "estimatedTruckCount": {
+          "type": "number"
+        },
+        "originMine": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "SCHEDULED",
+            "ON_WAY",
+            "ARRIVED_GATE",
+            "TIMBANG_MASUK",
+            "BONGKAR",
+            "TIMBANG_KELUAR",
+            "GATE_OUT",
+            "COMPLETED",
+            "REJECTED",
+            "OVERDUE",
+            "CANCELLED"
+          ]
+        },
+        "remarks": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "poId",
+        "poNumber",
+        "supplierName",
+        "etaDateTime",
+        "estimatedTonnage",
+        "status",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CoalTransaction": {
+      "title": "CoalTransaction",
+      "description": "Transaksi operasional pengiriman batubara dari Gate In, Timbang Masuk, Bongkar, Timbang Keluar, Gate Out, dan QC-PA.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ticketNumber": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "queueNumber": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "scheduleId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "poId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "poNumber": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "supplierName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "transporterName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "vehiclePlate": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "driverName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "driverPhone": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "driverIdNumber": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "gateInTime": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "securityOfficer": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "tarpCondition": {
+          "type": "string",
+          "enum": ["BAIK_RAPAT", "RUSAK_ROBEK", "TANPA_TERPAL"]
+        },
+        "securityNotes": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "suratJalanNumber": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "suratJalanDate": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "scheduledDeliveryDate": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "suratJalanWeight": {
+          "type": "number"
+        },
+        "suratJalanVerified": {
+          "type": "boolean"
+        },
+        "ritCategory": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "ritRemarks": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "grossWeight": {
+          "type": "number"
+        },
+        "tareWeight": {
+          "type": "number"
+        },
+        "nettoWeight": {
+          "type": "number"
+        },
+        "nettoTons": {
+          "type": "number"
+        },
+        "weightDifference": {
+          "type": "number"
+        },
+        "shrinkagePercentage": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "SCHEDULED",
+            "GATE_IN",
+            "TIMBANG_MASUK",
+            "QC_CHECK",
+            "BONGKAR",
+            "TIMBANG_KELUAR",
+            "GATE_OUT",
+            "COMPLETED",
+            "REJECTED"
+          ]
+        },
+        "syncedToGoogleSheet": {
+          "type": "boolean"
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ticketNumber",
+        "queueNumber",
+        "poId",
+        "poNumber",
+        "supplierName",
+        "vehiclePlate",
+        "driverName",
+        "gateInTime",
+        "tarpCondition",
+        "suratJalanWeight",
+        "grossWeight",
+        "tareWeight",
+        "nettoWeight",
+        "nettoTons",
+        "status",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Catatan jejak audit immutable untuk seluruh perubahan data, koreksi riwayat, reset data, dan manajemen peran.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "actorUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "actorEmail": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "actorName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "actorRole": {
+          "type": "string",
+          "enum": [
+            "ADMIN",
+            "SECURITY",
+            "TIMBANG_MASUK",
+            "BONGKAR",
+            "TIMBANG_KELUAR",
+            "QC_LAB",
+            "VIEWER"
+          ]
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "entityType": {
+          "type": "string",
+          "enum": ["PO", "SCHEDULE", "TRANSACTION", "SYSTEM", "USER"]
+        },
+        "entityId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "details": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "actorUid",
+        "actorEmail",
+        "actorName",
+        "actorRole",
+        "action",
+        "entityType",
+        "entityId",
+        "summary"
+      ]
+    },
+    "GoogleSheetSetting": {
+      "title": "GoogleSheetSetting",
+      "description": "Konfigurasi webhook Google Apps Script yang disimpan oleh Administrator.",
+      "type": "object",
+      "properties": {
+        "webhookUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "sheetName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "autoSyncEnabled": {
+          "type": "boolean"
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["webhookUrl", "sheetName", "autoSyncEnabled", "updatedBy", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Daftar UID Administrator sistem SIMOTUBA."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Profil operator dan peran RBAC pengguna terautentikasi."
+    },
+    "/purchase_orders/{poId}": {
+      "schema": { "$ref": "#/entities/PurchaseOrder" },
+      "description": "Data Purchase Order (PO) pengadaan batubara."
+    },
+    "/arrival_schedules/{scheduleId}": {
+      "schema": { "$ref": "#/entities/ArrivalSchedule" },
+      "description": "Data jadwal kedatangan armada batubara per PO."
+    },
+    "/coal_transactions/{txId}": {
+      "schema": { "$ref": "#/entities/CoalTransaction" },
+      "description": "Data transaksi timbangan dan alur operasional armada batubara."
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Jejak audit permanen (append-only) untuk seluruh aktivitas sistem."
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/GoogleSheetSetting" },
+      "description": "Pengaturan integrasi sistem (misal Google Sheets Webhook)."
+    }
+  }
+}

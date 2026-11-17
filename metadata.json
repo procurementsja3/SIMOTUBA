@@ -1,0 +1,8 @@
+{
+  "name": "Sistem Monitoring Batubara \u0026 Jembatan Timbang V.4",
+  "description": "Sistem terintegrasi monitoring logistik batubara, PO, verifikasi surat jalan, jembatan timbang real-time, QC laboratorium, pembongkaran stockpile, dan sinkronisasi otomatis Google Sheets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

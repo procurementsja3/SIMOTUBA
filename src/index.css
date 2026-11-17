@@ -1,0 +1,357 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --bg-canvas: #f1f5f9;
+    --bg-card: #ffffff;
+    --bg-surface: #f8fafc;
+    --border-color: #cbd5e1;
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #475569;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: #f1f5f9;
+    color: #0f172a;
+    color-scheme: light;
+  }
+}
+
+.font-mono-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   OFFICIAL ENTERPRISE INDUSTRIAL LOGISTICS THEME (LIGHT STANDARD)
+   Anti-AI Aesthetic: Solid Opaque Panels, High-Contrast Typography,
+   Clean Institutional Layout, Zero Glassmorphism
+   ============================================================ */
+
+/* Main Canvas & Container Backgrounds */
+body,
+.bg-\[\#0c1017\],
+.bg-\[\#090d14\] {
+  background-color: #f1f5f9 !important;
+}
+
+/* Header: Official Clean Enterprise Bar */
+header {
+  background-color: #ffffff !important;
+  border-bottom: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+}
+
+header h1 {
+  color: #0f172a !important;
+}
+
+header .text-slate-300,
+header .text-slate-400 {
+  color: #334155 !important;
+}
+
+header .bg-slate-900\/90,
+header .bg-slate-900,
+header .bg-slate-950 {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+/* Sidebar: Solid White Enterprise Navigation */
+aside {
+  background-color: #ffffff !important;
+  border-right: 1px solid #cbd5e1 !important;
+  box-shadow: 1px 0 3px 0 rgba(0, 0, 0, 0.03);
+}
+
+aside .bg-slate-900,
+aside .bg-slate-950,
+aside .bg-slate-950\/60,
+aside .bg-slate-950\/70,
+aside .border-b {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+aside span.text-white {
+  color: #0f172a !important;
+}
+
+aside .text-slate-400 {
+  color: #334155 !important;
+}
+
+aside .text-slate-500 {
+  color: #475569 !important;
+}
+
+aside button.group:not(.bg-amber-500) {
+  color: #334155 !important;
+}
+
+aside button.group:not(.bg-amber-500):hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+/* Structural Cards, Panels & Metric Blocks */
+[class*="bg-slate-900"]:not(button):not(.btn):not([class*="bg-amber"]):not([class*="bg-emerald"]):not([class*="bg-blue"]):not([class*="bg-rose"]) {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+}
+
+/* Inset / Child containers (KPI rows, pipeline steps, table wrappers) */
+[class*="bg-slate-950"]:not(button):not(.btn) {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* Modal Windows & Backdrop */
+[role="dialog"] {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25) !important;
+}
+
+[role="dialog"] [class*="border-slate-800"],
+[role="dialog"] [class*="border-slate-700"] {
+  border-color: #e2e8f0 !important;
+}
+
+[role="dialog"] [class*="bg-slate-900"],
+[role="dialog"] [class*="bg-slate-950"] {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+[role="dialog"] [class*="text-white"],
+[role="dialog"] span.font-bold,
+[role="dialog"] span.font-semibold {
+  color: #0f172a !important;
+}
+
+/* Badges and tags with bg-slate-800 rendered on light canvas */
+[class*="bg-slate-800"]:not(button):not(.btn):not(a) {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+/* Borders */
+[class*="border-slate-800"],
+[class*="border-slate-700"],
+[class*="border-slate-900"] {
+  border-color: #cbd5e1 !important;
+}
+
+/* Typography Contrast Enforcement (Zero Washed-Out Text) */
+[class*="text-white"]:not(button *):not([class*="bg-amber-500"] *):not([class*="bg-emerald-600"] *):not([class*="bg-blue-600"] *):not([class*="bg-rose-600"] *),
+[class*="text-slate-100"]:not(button *),
+[class*="text-slate-200"]:not(button *),
+[class*="text-slate-300"]:not(button *) {
+  color: #0f172a !important;
+}
+
+[class*="text-slate-400"]:not(button *):not([class*="bg-amber-500"] *) {
+  color: #334155 !important;
+}
+
+[class*="text-slate-500"]:not(button *):not([class*="bg-amber-500"] *) {
+  color: #475569 !important;
+}
+
+strong,
+b {
+  color: #0f172a !important;
+}
+
+/* Metric Numerals High-Contrast */
+.text-2xl,
+.text-3xl,
+.text-4xl,
+.font-mono-num {
+  color: #0f172a;
+}
+
+/* High-Contrast Badges & Accents (Deep Legible Ink on Soft Tint) */
+[class*="text-amber-400"],
+[class*="text-amber-300"] {
+  color: #92400e !important; /* Deep warm amber/brown, very readable on white */
+}
+
+[class*="text-emerald-400"],
+[class*="text-emerald-300"] {
+  color: #065f46 !important; /* Deep forest green */
+}
+
+[class*="text-sky-400"],
+[class*="text-sky-300"],
+[class*="text-blue-400"],
+[class*="text-blue-300"] {
+  color: #1e40af !important; /* Deep royal blue */
+}
+
+[class*="text-purple-400"],
+[class*="text-purple-300"] {
+  color: #6b21a8 !important; /* Deep rich purple */
+}
+
+[class*="text-rose-400"],
+[class*="text-rose-300"] {
+  color: #991b1b !important; /* Deep crimson */
+}
+
+[class*="bg-amber-500/"] {
+  background-color: #fef3c7 !important;
+  border-color: #fde68a !important;
+}
+
+[class*="bg-emerald-500/"] {
+  background-color: #d1fae5 !important;
+  border-color: #a7f3d0 !important;
+}
+
+[class*="bg-blue-500/"],
+[class*="bg-sky-400/"] {
+  background-color: #dbeafe !important;
+  border-color: #bfdbfe !important;
+}
+
+/* Tables: Official Enterprise Government/Corporate Standard */
+table {
+  color: #0f172a !important;
+  background-color: #ffffff !important;
+}
+
+thead tr,
+thead th {
+  background-color: #f1f5f9 !important;
+  color: #1e293b !important;
+  font-weight: 700 !important;
+  border-bottom: 2px solid #cbd5e1 !important;
+  text-transform: uppercase;
+}
+
+tbody tr {
+  border-bottom: 1px solid #e2e8f0 !important;
+  background-color: #ffffff;
+}
+
+tbody tr:hover {
+  background-color: #f8fafc !important;
+}
+
+td {
+  color: #1e293b !important;
+}
+
+/* Form Inputs, Selects & Textareas */
+input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]),
+select,
+textarea {
+  background-color: #ffffff !important;
+  border-color: #94a3b8 !important;
+  color: #0f172a !important;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #d97706 !important;
+  outline: 2px solid rgba(217, 119, 6, 0.25) !important;
+  background-color: #ffffff !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* Neutral Buttons */
+button.bg-slate-800,
+button.bg-slate-900,
+button[class*="bg-slate-800"],
+button[class*="bg-slate-900"] {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+}
+
+button.bg-slate-800:hover,
+button.bg-slate-900:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-color: #94a3b8 !important;
+}
+
+/* Primary Amber Button: Solid Gold Amber with Deep Solid Black Text */
+button.bg-amber-500:not(:disabled) {
+  background-color: #f59e0b !important;
+  color: #000000 !important;
+  font-weight: 700 !important;
+}
+
+button.bg-amber-500:not(:disabled):hover {
+  background-color: #d97706 !important;
+}
+
+button.bg-amber-500:disabled,
+button.bg-emerald-600:disabled {
+  background-color: #e2e8f0 !important;
+  color: #64748b !important;
+  cursor: not-allowed !important;
+  opacity: 0.85;
+}
+
+/* Primary Emerald Button */
+button.bg-emerald-600:not(:disabled) {
+  background-color: #059669 !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+/* Footer */
+footer {
+  background-color: #ffffff !important;
+  border-top: 1px solid #cbd5e1 !important;
+  color: #475569 !important;
+}
+
+/* Mobile Bottom Nav */
+nav.fixed.bottom-0 {
+  background-color: #ffffff !important;
+  border-top: 1px solid #cbd5e1 !important;
+  box-shadow: 0 -2px 6px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* Print Ticket Styles */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-ticket, #printable-ticket * {
+    visibility: visible;
+  }
+  #printable-ticket {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 24px;
+    background: white !important;
+    color: black !important;
+  }
+}
