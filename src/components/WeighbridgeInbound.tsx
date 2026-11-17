@@ -12,14 +12,34 @@ import {
   Phone,
   CreditCard,
   FileText,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Calendar
 } from 'lucide-react';
 import { CoalTransaction } from '../types/coal';
 import { WeighbridgeIndicator } from './WeighbridgeIndicator';
 
+const getLocalDateStr = (d = new Date()) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getLocalTimeStr = (d = new Date()) => {
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
+
 interface WeighbridgeInboundProps {
   transactions: CoalTransaction[];
-  onCompleteWeighIn: (txId: string, grossWeight: number, operatorName: string, scaleId: string) => void;
+  onCompleteWeighIn: (
+    txId: string,
+    grossWeight: number,
+    operatorName: string,
+    scaleId: string,
+    weighInTimeIso?: string
+  ) => void;
   selectedTxId?: string;
 }
 
@@ -44,8 +64,13 @@ export const WeighbridgeInbound: React.FC<WeighbridgeInboundProps> = ({
   const [scaleId, setScaleId] = useState('JT-01 (Inbound 80 Ton)');
   const [capturedGross, setCapturedGross] = useState<number | null>(null);
   const [operatorError, setOperatorError] = useState(false);
+  const [weighInDate, setWeighInDate] = useState<string>(() => getLocalDateStr());
+  const [weighInTime, setWeighInTime] = useState<string>(() => getLocalTimeStr());
+  const [timeError, setTimeError] = useState<string | null>(null);
 
   const lastAppliedSelectedTxIdRef = React.useRef<string | undefined>(undefined);
+  const eligibleTrucksRef = React.useRef(eligibleTrucks);
+  eligibleTrucksRef.current = eligibleTrucks;
   const confirmationBoxRef = React.useRef<HTMLDivElement>(null);
   const operatorInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -75,6 +100,19 @@ export const WeighbridgeInbound: React.FC<WeighbridgeInboundProps> = ({
   React.useEffect(() => {
     setOperatorName('');
     setOperatorError(false);
+    setTimeError(null);
+    const currentTx = eligibleTrucksRef.current.find((t) => t.id === activeTxId);
+    if (currentTx?.weighInTime) {
+      const parsed = new Date(currentTx.weighInTime);
+      if (!Number.isNaN(parsed.getTime())) {
+        setWeighInDate(getLocalDateStr(parsed));
+        setWeighInTime(getLocalTimeStr(parsed));
+        return;
+      }
+    }
+    const now = new Date();
+    setWeighInDate(getLocalDateStr(now));
+    setWeighInTime(getLocalTimeStr(now));
   }, [activeTxId]);
 
   const activeTx = transactions.find((t) => t.id === activeTxId);
@@ -91,15 +129,30 @@ export const WeighbridgeInbound: React.FC<WeighbridgeInboundProps> = ({
     if (!activeTx || !capturedGross || capturedGross <= 0) {
       return;
     }
+    if (!weighInDate || !weighInTime) {
+      setTimeError('Tanggal dan jam masuk jembatan timbang wajib diisi.');
+      return;
+    }
+    const dateObj = new Date();
+    const [y, m, d] = weighInDate.split('-').map(Number);
+    const [hh, mm] = weighInTime.split(':').map(Number);
+    if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm)) {
+      setTimeError('Format tanggal atau jam masuk jembatan timbang tidak valid.');
+      return;
+    }
+    dateObj.setFullYear(y, m - 1, d);
+    dateObj.setHours(hh, mm, 0, 0);
+
     if (!operatorName.trim()) {
       setOperatorError(true);
       operatorInputRef.current?.focus();
       return;
     }
-    onCompleteWeighIn(activeTx.id, capturedGross, operatorName.trim(), scaleId);
+    onCompleteWeighIn(activeTx.id, capturedGross, operatorName.trim(), scaleId, dateObj.toISOString());
     setCapturedGross(null);
     setOperatorName('');
     setOperatorError(false);
+    setTimeError(null);
   };
 
   const formatTimeWithDots = (isoString?: string) => {
@@ -348,6 +401,108 @@ export const WeighbridgeInbound: React.FC<WeighbridgeInboundProps> = ({
                       </div>
                     </div>
                   </div>
+                </div>
+
+                {/* Waktu Masuk Jembatan Timbang (Format sama seperti Pos Security) */}
+                <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400 uppercase tracking-wide">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Waktu Masuk Jembatan Timbang (Timbang Masuk)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const now = new Date();
+                        setWeighInDate(getLocalDateStr(now));
+                        setWeighInTime(getLocalTimeStr(now));
+                        setTimeError(null);
+                      }}
+                      className="text-[11px] font-semibold text-amber-600 hover:text-amber-700 hover:underline cursor-pointer"
+                    >
+                      Gunakan Waktu Saat Ini
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+                    <div>
+                      <label className="text-xs font-bold text-amber-400 mb-1 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>Tanggal Masuk Jembatan Timbang *</span>
+                      </label>
+                      <div className="relative flex items-center">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement | null;
+                            try {
+                              input?.showPicker?.();
+                            } catch {
+                              input?.focus();
+                            }
+                          }}
+                          className="absolute left-2.5 text-amber-600 hover:text-amber-700 p-0.5 hover:bg-amber-50 rounded transition-transform hover:scale-110 active:scale-95 cursor-pointer z-10"
+                          title="Klik untuk membuka kalender sistem"
+                        >
+                          <Calendar className="w-3.5 h-3.5" />
+                        </button>
+                        <input
+                          type="date"
+                          required
+                          value={weighInDate}
+                          onChange={(e) => {
+                            setWeighInDate(e.target.value);
+                            if (timeError) setTimeError(null);
+                          }}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-8 pr-2.5 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono-num font-semibold"
+                          style={{ colorScheme: 'light' }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">Tanggal fisik armada masuk ke jembatan timbang</span>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-amber-400 mb-1 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>Jam Masuk Jembatan Timbang (WIB) *</span>
+                      </label>
+                      <div className="relative flex items-center">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            const input = e.currentTarget.parentElement?.querySelector('input[type="time"]') as HTMLInputElement | null;
+                            try {
+                              input?.showPicker?.();
+                            } catch {
+                              input?.focus();
+                            }
+                          }}
+                          className="absolute left-2.5 text-amber-600 hover:text-amber-700 p-0.5 hover:bg-amber-50 rounded transition-transform hover:scale-110 active:scale-95 cursor-pointer z-10"
+                          title="Klik untuk memilih jam dari sistem"
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                        </button>
+                        <input
+                          type="time"
+                          required
+                          value={weighInTime}
+                          onChange={(e) => {
+                            setWeighInTime(e.target.value);
+                            if (timeError) setTimeError(null);
+                          }}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-8 pr-2.5 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono-num font-semibold"
+                          style={{ colorScheme: 'light' }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">Ketik jam manual atau klik ikon jam sistem</span>
+                    </div>
+                  </div>
+                  {timeError && (
+                    <p className="text-[11px] text-rose-500 font-medium flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{timeError}</span>
+                    </p>
+                  )}
                 </div>
 
                 {/* Live Weighbridge Scale Component */}

@@ -1322,13 +1322,18 @@ export default function App() {
     txId: string,
     grossWeight: number,
     operatorName: string,
-    scaleId: string
+    scaleId: string,
+    customWeighInTime?: string
   ) => {
     if (!requireRole('TIMBANG_MASUK')) return;
 
     const targetTx = transactions.find((t) => t.id === txId);
     if (!targetTx) return;
-    const weighInTime = new Date().toISOString();
+    const parsedCustomTime = customWeighInTime ? new Date(customWeighInTime) : null;
+    const weighInTime =
+      parsedCustomTime && !Number.isNaN(parsedCustomTime.getTime())
+        ? parsedCustomTime.toISOString()
+        : new Date().toISOString();
     const initialDiscrepancy =
       targetTx.suratJalanWeight > 0 ? grossWeight - targetTx.suratJalanWeight : 0;
 
