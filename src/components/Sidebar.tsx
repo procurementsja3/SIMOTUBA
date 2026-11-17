@@ -198,7 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center gap-3 overflow-hidden">
             <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-xs overflow-hidden p-0.5">
               <img
-                src="/assets/aistudio/pt_santos_jaya_abadi__kapal_api_group__1777964733_80ec37da.jpg"
+                src={`${import.meta.env.BASE_URL}assets/aistudio/pt_santos_jaya_abadi__kapal_api_group__1777964733_80ec37da.jpg`}
                 alt="Logo"
                 className="w-full h-full object-contain"
               />
