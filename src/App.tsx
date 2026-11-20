@@ -1646,15 +1646,20 @@ export default function App() {
     txId: string,
     checkerName: string,
     cleanDumpVerified: boolean,
-    notes: string
+    notes: string,
+    customUnloadingEndTime?: string
   ) => {
     if (!requireRole('BONGKAR')) return;
 
     const targetTx = transactions.find((t) => t.id === txId);
     if (!targetTx) return;
-    const unloadingEndTime = new Date().toISOString();
-
     const nowIso = new Date().toISOString();
+    const parsedCustomTime = customUnloadingEndTime ? new Date(customUnloadingEndTime) : null;
+    const unloadingEndTime =
+      parsedCustomTime && !Number.isNaN(parsedCustomTime.getTime())
+        ? parsedCustomTime.toISOString()
+        : nowIso;
+
     const updated = transactions.map((t) =>
       t.id === txId
         ? {

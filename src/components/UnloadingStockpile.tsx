@@ -6,9 +6,23 @@ import {
   ArrowRight, 
   Truck, 
   AlertCircle,
-  HardHat
+  HardHat,
+  Calendar
 } from 'lucide-react';
 import { CoalTransaction } from '../types/coal';
+
+const getLocalDateStr = (d = new Date()) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getLocalTimeStr = (d = new Date()) => {
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
 
 interface UnloadingStockpileProps {
   transactions: CoalTransaction[];
@@ -16,7 +30,8 @@ interface UnloadingStockpileProps {
     txId: string,
     checkerName: string,
     cleanDumpVerified: boolean,
-    notes: string
+    notes: string,
+    unloadingEndTimeIso?: string
   ) => void;
   selectedTxId?: string;
 }
@@ -38,6 +53,8 @@ export const UnloadingStockpile: React.FC<UnloadingStockpileProps> = ({
   );
 
   const lastAppliedSelectedTxIdRef = React.useRef<string | undefined>(undefined);
+  const eligibleTrucksRef = React.useRef(eligibleTrucks);
+  eligibleTrucksRef.current = eligibleTrucks;
 
   React.useEffect(() => {
     if (
@@ -60,20 +77,63 @@ export const UnloadingStockpile: React.FC<UnloadingStockpileProps> = ({
   const [checkerName, setCheckerName] = useState('');
   const [cleanDumpVerified, setCleanDumpVerified] = useState(true);
   const [unloadingNotes, setUnloadingNotes] = useState('');
+  const [unloadingDate, setUnloadingDate] = useState<string>(() => getLocalDateStr());
+  const [unloadingTime, setUnloadingTime] = useState<string>(() => getLocalTimeStr());
+  const [timeError, setTimeError] = useState<string | null>(null);
 
   React.useEffect(() => {
     setCheckerName('');
     setCleanDumpVerified(true);
     setUnloadingNotes('');
+    setTimeError(null);
+    const currentTx = eligibleTrucksRef.current.find((t) => t.id === activeTxId);
+    if (currentTx?.unloadingEndTime) {
+      const parsed = new Date(currentTx.unloadingEndTime);
+      if (!Number.isNaN(parsed.getTime())) {
+        setUnloadingDate(getLocalDateStr(parsed));
+        setUnloadingTime(getLocalTimeStr(parsed));
+        return;
+      }
+    }
+    const refTimeIso = currentTx?.weighInTime || currentTx?.gateInTime;
+    const refDateObj = refTimeIso ? new Date(refTimeIso) : null;
+    const now = new Date();
+    setUnloadingDate(
+      refDateObj && !Number.isNaN(refDateObj.getTime())
+        ? getLocalDateStr(refDateObj)
+        : getLocalDateStr(now)
+    );
+    setUnloadingTime(getLocalTimeStr(now));
   }, [activeTxId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeTx || !checkerName.trim()) return;
-    onCompleteUnloading(activeTx.id, checkerName.trim(), cleanDumpVerified, unloadingNotes.trim());
+    if (!unloadingDate || !unloadingTime) {
+      setTimeError('Tanggal dan jam selesai bongkar wajib diisi.');
+      return;
+    }
+    const dateObj = new Date();
+    const [y, m, d] = unloadingDate.split('-').map(Number);
+    const [hh, mm] = unloadingTime.split(':').map(Number);
+    if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm)) {
+      setTimeError('Format tanggal atau jam selesai bongkar tidak valid.');
+      return;
+    }
+    dateObj.setFullYear(y, m - 1, d);
+    dateObj.setHours(hh, mm, 0, 0);
+
+    onCompleteUnloading(
+      activeTx.id,
+      checkerName.trim(),
+      cleanDumpVerified,
+      unloadingNotes.trim(),
+      dateObj.toISOString()
+    );
     setCheckerName('');
     setCleanDumpVerified(true);
     setUnloadingNotes('');
+    setTimeError(null);
   };
 
   return (
@@ -180,6 +240,108 @@ export const UnloadingStockpile: React.FC<UnloadingStockpileProps> = ({
                       {activeTx.grossWeight.toLocaleString('id-ID')} kg
                     </strong>
                   </div>
+                </div>
+
+                {/* Waktu Selesai Bongkar (Format sama seperti Timbang Masuk / Timbang Keluar) */}
+                <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400 uppercase tracking-wide">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Waktu Selesai Bongkar (Proses Bongkar)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const now = new Date();
+                        setUnloadingDate(getLocalDateStr(now));
+                        setUnloadingTime(getLocalTimeStr(now));
+                        setTimeError(null);
+                      }}
+                      className="text-[11px] font-semibold text-amber-600 hover:text-amber-700 hover:underline cursor-pointer"
+                    >
+                      Gunakan Waktu Saat Ini
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+                    <div>
+                      <label className="text-xs font-bold text-amber-400 mb-1 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>Tanggal Bongkar Muatan *</span>
+                      </label>
+                      <div className="relative flex items-center">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            const input = e.currentTarget.parentElement?.querySelector('input[type="date"]') as HTMLInputElement | null;
+                            try {
+                              input?.showPicker?.();
+                            } catch {
+                              input?.focus();
+                            }
+                          }}
+                          className="absolute left-2.5 text-amber-600 hover:text-amber-700 p-0.5 hover:bg-amber-50 rounded transition-transform hover:scale-110 active:scale-95 cursor-pointer z-10"
+                          title="Klik untuk membuka kalender sistem"
+                        >
+                          <Calendar className="w-3.5 h-3.5" />
+                        </button>
+                        <input
+                          type="date"
+                          required
+                          value={unloadingDate}
+                          onChange={(e) => {
+                            setUnloadingDate(e.target.value);
+                            if (timeError) setTimeError(null);
+                          }}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-8 pr-2.5 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono-num font-semibold"
+                          style={{ colorScheme: 'light' }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">Tanggal fisik armada selesai bongkar di stockpile</span>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-amber-400 mb-1 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>Jam Selesai Bongkar (WIB) *</span>
+                      </label>
+                      <div className="relative flex items-center">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            const input = e.currentTarget.parentElement?.querySelector('input[type="time"]') as HTMLInputElement | null;
+                            try {
+                              input?.showPicker?.();
+                            } catch {
+                              input?.focus();
+                            }
+                          }}
+                          className="absolute left-2.5 text-amber-600 hover:text-amber-700 p-0.5 hover:bg-amber-50 rounded transition-transform hover:scale-110 active:scale-95 cursor-pointer z-10"
+                          title="Klik untuk memilih jam dari sistem"
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                        </button>
+                        <input
+                          type="time"
+                          required
+                          value={unloadingTime}
+                          onChange={(e) => {
+                            setUnloadingTime(e.target.value);
+                            if (timeError) setTimeError(null);
+                          }}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-8 pr-2.5 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono-num font-semibold"
+                          style={{ colorScheme: 'light' }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">Ketik jam manual atau klik ikon jam sistem</span>
+                    </div>
+                  </div>
+                  {timeError && (
+                    <p className="text-[11px] text-rose-500 font-medium flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{timeError}</span>
+                    </p>
+                  )}
                 </div>
 
                 {/* Unloading Checklists */}
