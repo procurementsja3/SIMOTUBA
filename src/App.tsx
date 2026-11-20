@@ -1724,7 +1724,8 @@ export default function App() {
     tareWeight: number,
     operatorName: string,
     scaleId: string,
-    gateOutOfficer: string
+    gateOutOfficer: string,
+    customWeighOutTime?: string
   ) => {
     if (!requireRole('TIMBANG_KELUAR')) return;
 
@@ -1743,7 +1744,12 @@ export default function App() {
       suratJalanWeight: targetTx.suratJalanWeight,
       tolerancePercentage: tol,
     });
-    const weighOutTime = new Date().toISOString();
+    const nowIso = new Date().toISOString();
+    const parsedCustomTime = customWeighOutTime ? new Date(customWeighOutTime) : null;
+    const weighOutTime =
+      parsedCustomTime && !Number.isNaN(parsedCustomTime.getTime())
+        ? parsedCustomTime.toISOString()
+        : nowIso;
 
     const updated = transactions.map((t) =>
       t.id === txId
@@ -1761,7 +1767,7 @@ export default function App() {
             claimPenaltyKg: metrics.claimPenaltyKg,
             gateOutOfficer,
             status: 'GATE_OUT' as const,
-            updatedAt: weighOutTime,
+            updatedAt: nowIso,
           }
         : t
     );
