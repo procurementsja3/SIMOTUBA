@@ -202,11 +202,11 @@ export function calculateDuration(startTime?: string, endTime?: string): Duratio
     diffSeconds = Math.floor((endMs - startMs) / 1000);
   }
 
-  // Method 2: If diffSeconds is 0 (or was negative) while endTime is present,
-  // extract literal clock components (guarding against timezone & date discrepancies)
-  if (diffSeconds <= 0 && endTime) {
+  // Method 2: If diffSeconds is <= 0 OR >= 24 hours (e.g. backdated Gate In vs system-date Gate Out)
+  // while endTime is present, compute duration from the literal clock times (supports overnight turnaround).
+  if (endTime && (diffSeconds <= 0 || diffSeconds >= 86400)) {
     const fromClock = calculateFromFormattedTimes(startTime, endTime);
-    if (fromClock && fromClock.totalSeconds > 0) {
+    if (fromClock) {
       diffSeconds = fromClock.totalSeconds;
     }
   }
@@ -321,11 +321,11 @@ export function getOperationalTimeline(tx: CoalTransaction): {
       const currentTime = getNormalizedTimestampMs(s.timestamp) ?? new Date(s.timestamp).getTime();
       if (prevTime !== null) {
         let diffMs = currentTime - prevTime;
-        if (diffMs <= 0) {
+        if (diffMs <= 0 || diffMs >= 86400 * 1000) {
           const prevFormatted = steps[index - 1]?.timestamp ? formatClockTime(steps[index - 1].timestamp) : undefined;
           if (prevFormatted && prevFormatted !== '-' && formattedTime !== '-') {
             const fb = calculateFromFormattedTimes(prevFormatted, formattedTime);
-            if (fb && fb.totalSeconds > 0) {
+            if (fb) {
               diffMs = fb.totalSeconds * 1000;
             }
           }

@@ -28,7 +28,7 @@ interface PosSecurityProps {
   onCheckInTruck: (newTx: CoalTransaction) => void;
   onAdvanceToWeighIn: (txId: string) => void;
   preselectedSchedule?: ArrivalSchedule | null;
-  onCompleteGateOut?: (txId: string, officerName: string) => void;
+  onCompleteGateOut?: (txId: string, officerName: string, gateOutTimeIso?: string) => void;
   onOpenTicket?: (tx: CoalTransaction) => void;
   initialSubTab?: 'GATE_IN' | 'GATE_OUT';
 }
@@ -88,6 +88,8 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
   const [timelineModalTx, setTimelineModalTx] = useState<CoalTransaction | null>(null);
   const [gateOutOperators, setGateOutOperators] = useState<Record<string, string>>({});
   const [gateOutOperatorErrors, setGateOutOperatorErrors] = useState<Record<string, boolean>>({});
+  const [gateOutDates, setGateOutDates] = useState<Record<string, string>>({});
+  const [gateOutTimes, setGateOutTimes] = useState<Record<string, string>>({});
 
   // Form State
   const [formData, setFormData] = useState<{
@@ -651,6 +653,70 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                         </div>
                       </div>
 
+                      {/* Tanggal & Jam Keluar Gerbang (Gate Out) */}
+                      {(() => {
+                        const refTimeIso = tx.weighOutTime || tx.gateInTime;
+                        const refDateObj = refTimeIso ? new Date(refTimeIso) : new Date();
+                        const defaultGateOutDate = !Number.isNaN(refDateObj.getTime())
+                          ? getLocalDateStr(refDateObj)
+                          : getLocalDateStr();
+                        const currentGateOutDate = gateOutDates[tx.id] ?? defaultGateOutDate;
+                        const currentGateOutTime = gateOutTimes[tx.id] ?? getLocalTimeStr();
+                        return (
+                          <div className="mb-3 pt-2 border-t border-slate-800 space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-bold text-amber-400 uppercase flex items-center gap-1">
+                                <Clock className="w-3.5 h-3.5" />
+                                Waktu Keluar Gerbang (Gate Out)
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const now = new Date();
+                                  setGateOutDates((prev) => ({ ...prev, [tx.id]: getLocalDateStr(now) }));
+                                  setGateOutTimes((prev) => ({ ...prev, [tx.id]: getLocalTimeStr(now) }));
+                                }}
+                                className="text-[10px] font-semibold text-amber-600 hover:text-amber-700 hover:underline cursor-pointer"
+                              >
+                                Gunakan Waktu Saat Ini
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-600 mb-1 flex items-center gap-1">
+                                  <Calendar className="w-3 h-3 text-amber-500" />
+                                  Tanggal Keluar *
+                                </label>
+                                <input
+                                  type="date"
+                                  value={currentGateOutDate}
+                                  onChange={(e) =>
+                                    setGateOutDates((prev) => ({ ...prev, [tx.id]: e.target.value }))
+                                  }
+                                  className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-mono-num font-semibold focus:outline-none focus:border-amber-500"
+                                  style={{ colorScheme: 'light' }}
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-600 mb-1 flex items-center gap-1">
+                                  <Clock className="w-3 h-3 text-amber-500" />
+                                  Jam Keluar (WIB) *
+                                </label>
+                                <input
+                                  type="time"
+                                  value={currentGateOutTime}
+                                  onChange={(e) =>
+                                    setGateOutTimes((prev) => ({ ...prev, [tx.id]: e.target.value }))
+                                  }
+                                  className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-mono-num font-semibold focus:outline-none focus:border-amber-500"
+                                  style={{ colorScheme: 'light' }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       {/* Required Operator Input before Gate Out */}
                       <div className="mb-3 pt-2 border-t border-slate-800">
                         <label className="text-[11px] font-bold text-slate-800 mb-1 flex items-center justify-between">
@@ -710,8 +776,25 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                               inputEl?.focus();
                               return;
                             }
+                            const refTimeIso = tx.weighOutTime || tx.gateInTime;
+                            const refDateObj = refTimeIso ? new Date(refTimeIso) : new Date();
+                            const fallbackDate = !Number.isNaN(refDateObj.getTime())
+                              ? getLocalDateStr(refDateObj)
+                              : getLocalDateStr();
+                            const chosenDate = gateOutDates[tx.id] ?? fallbackDate;
+                            const chosenTime = gateOutTimes[tx.id] ?? getLocalTimeStr();
+                            const dateObj = new Date();
+                            const [y, m, d] = chosenDate.split('-').map(Number);
+                            const [hh, mm] = chosenTime.split(':').map(Number);
+                            if (y && m && d) {
+                              dateObj.setFullYear(y, m - 1, d);
+                            }
+                            if (!Number.isNaN(hh) && !Number.isNaN(mm)) {
+                              dateObj.setHours(hh, mm, dateObj.getSeconds(), 0);
+                            }
+
                             if (onCompleteGateOut) {
-                              onCompleteGateOut(tx.id, operatorName);
+                              onCompleteGateOut(tx.id, operatorName, dateObj.toISOString());
                             }
                             setGateOutOperators((prev) => {
                               const next = { ...prev };
@@ -719,6 +802,16 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                               return next;
                             });
                             setGateOutOperatorErrors((prev) => {
+                              const next = { ...prev };
+                              delete next[tx.id];
+                              return next;
+                            });
+                            setGateOutDates((prev) => {
+                              const next = { ...prev };
+                              delete next[tx.id];
+                              return next;
+                            });
+                            setGateOutTimes((prev) => {
                               const next = { ...prev };
                               delete next[tx.id];
                               return next;

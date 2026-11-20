@@ -1823,19 +1823,28 @@ export default function App() {
   };
 
   // Complete Gate Out at Pos Security (Final Stage of Full Pipeline)
-  const handleCompleteGateOut = async (txId: string, officerName: string) => {
+  const handleCompleteGateOut = async (
+    txId: string,
+    officerName: string,
+    customGateOutTime?: string
+  ) => {
     if (!requireRole('SECURITY')) return;
 
     const existingTx = transactions.find((t) => t.id === txId);
     if (!existingTx) return;
 
-    const gateOutTime = new Date().toISOString();
+    const nowIso = new Date().toISOString();
+    const parsedCustomTime = customGateOutTime ? new Date(customGateOutTime) : null;
+    const gateOutTime =
+      parsedCustomTime && !Number.isNaN(parsedCustomTime.getTime())
+        ? parsedCustomTime.toISOString()
+        : nowIso;
     const finalTx: CoalTransaction = {
       ...existingTx,
       gateOutTime,
       gateOutOfficer: officerName,
       status: 'COMPLETED' as const,
-      updatedAt: gateOutTime,
+      updatedAt: nowIso,
     };
 
     const updated = transactions.map((t) => (t.id === txId ? finalTx : t));
@@ -1846,7 +1855,7 @@ export default function App() {
 
     const updatedPos = purchaseOrders.map((po) =>
       po.id === targetPoId
-        ? { ...po, receivedTonnage: nextReceivedTonnageKg, updatedAt: gateOutTime }
+        ? { ...po, receivedTonnage: nextReceivedTonnageKg, updatedAt: nowIso }
         : po
     );
 

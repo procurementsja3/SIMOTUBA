@@ -31,6 +31,10 @@ export const PrintableTicketModal: React.FC<PrintableTicketModalProps> = ({
   };
 
   const tolerancePct = purchaseOrder?.tolerancePercentage || 5;
+  const supplierDisplayName =
+    purchaseOrder?.supplierName?.trim() ||
+    transaction.supplierName?.trim() ||
+    '-';
 
   const hasQcData = Boolean(transaction.qcTime || transaction.labResults?.calorieGAR);
 
@@ -66,12 +70,12 @@ export const PrintableTicketModal: React.FC<PrintableTicketModalProps> = ({
         className="relative bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full max-h-[94vh] flex flex-col shadow-2xl my-auto overflow-hidden text-slate-200"
         role="dialog"
         aria-modal="true"
-        aria-label="Pratinjau Tiket Timbang"
+        aria-label="Dokumen Berita Acara In Out"
       >
         {/* Sticky Top Header Controls (Hidden in print) */}
         <div className="shrink-0 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 p-3.5 sm:p-4 border-b border-slate-800 bg-slate-900/98 backdrop-blur-md z-10 print:hidden">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-bold text-white">Pratinjau Tiket Timbang & Berita Acara (BAPB)</span>
+            <span className="text-sm font-bold text-white">Dokumen Berita Acara In Out</span>
             <span className="font-mono-num text-xs bg-slate-800 text-amber-400 px-2 py-0.5 rounded border border-slate-700">
               {transaction.ticketNumber}
             </span>
@@ -84,13 +88,13 @@ export const PrintableTicketModal: React.FC<PrintableTicketModalProps> = ({
               className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer"
             >
               <Printer className="w-4 h-4" />
-              <span>Cetak Tiket (Print / PDF)</span>
+              <span>Cetak Dokumen (Print / PDF)</span>
             </button>
             <button
               type="button"
               onClick={onClose}
               className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-bold border border-slate-700 transition-colors cursor-pointer shrink-0"
-              title="Tutup Pratinjau Tiket (Esc)"
+              title="Tutup Dokumen Berita Acara In Out (Esc)"
             >
               <X className="w-4 h-4 text-rose-400" />
               <span>Tutup Preview</span>
@@ -106,22 +110,23 @@ export const PrintableTicketModal: React.FC<PrintableTicketModalProps> = ({
           >
           {/* Header */}
           <div className="border-b-2 border-slate-900 pb-4 mb-4">
-            <div className="flex justify-between items-start">
+            <div className="flex justify-between items-start gap-4">
               <div>
                 <h1 className="text-lg font-black tracking-tight text-slate-900 uppercase">
-                  PT ENERGI BATUBARA NUSANTARA
+                  {supplierDisplayName}
                 </h1>
                 <p className="text-[11px] text-slate-600 font-medium">
                   DIVISI LOGISTIK, JEMBATAN TIMBANG & PENGENDALIAN MUTU BATUBARA
                 </p>
-                <p className="text-[10px] text-slate-500">
-                  Kawasan Industri & Stockpile Terminal Dermaga 3 · Telp: (021) 8990-2100 · Email: weighbridge@energi-coal.id
+                <p className="text-[10px] text-slate-500 font-mono">
+                  PO: {purchaseOrder?.poNumber || transaction.poNumber}
+                  {purchaseOrder?.supplierCode ? ` · Kode Supplier: ${purchaseOrder.supplierCode}` : ''}
                 </p>
               </div>
 
-              <div className="text-right">
+              <div className="text-right shrink-0">
                 <div className="inline-block border-2 border-slate-900 px-3 py-1 text-center bg-slate-50">
-                  <div className="text-[10px] font-bold uppercase text-slate-700">TIKET TIMBANG RESMI</div>
+                  <div className="text-[10px] font-bold uppercase text-slate-700">BERITA ACARA IN OUT</div>
                   <div className="text-sm font-mono font-bold text-slate-900">{transaction.ticketNumber}</div>
                 </div>
                 <div className="text-[10px] text-slate-500 mt-1 font-mono">
@@ -134,7 +139,7 @@ export const PrintableTicketModal: React.FC<PrintableTicketModalProps> = ({
           {/* Subheader Document Title */}
           <div className="text-center my-3 pb-2 border-b border-slate-300">
             <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-              SLIP JEMBATAN TIMBANG & BERITA ACARA PENERIMAAN BATUBARA (BAPB)
+              DOKUMEN BERITA ACARA IN OUT
             </h2>
           </div>
 
@@ -172,7 +177,7 @@ export const PrintableTicketModal: React.FC<PrintableTicketModalProps> = ({
                   </tr>
                   <tr>
                     <td className="text-slate-500 py-0.5">Supplier / Tambang:</td>
-                    <td className="font-semibold text-slate-900">{transaction.supplierName}</td>
+                    <td className="font-semibold text-slate-900">{supplierDisplayName}</td>
                   </tr>
                   <tr>
                     <td className="text-slate-500 py-0.5">No. Surat Jalan (SJ):</td>
@@ -447,7 +452,7 @@ export const PrintableTicketModal: React.FC<PrintableTicketModalProps> = ({
               className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer"
             >
               <Printer className="w-4 h-4" />
-              <span>Cetak Tiket (Print / PDF)</span>
+              <span>Cetak Dokumen (Print / PDF)</span>
             </button>
           </div>
         </div>
