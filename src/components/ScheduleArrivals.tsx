@@ -275,12 +275,6 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
       .sort((a, b) => a.date.localeCompare(b.date));
   })();
 
-  const multiRitDays = sameDayOverview.filter(
-    (d) =>
-      d.existingTrucksSameDate + d.draftTrucksSameDate >= 2 ||
-      d.existingSchedulesSameDate + d.draftRowsSameDate >= 2
-  );
-
   const OPERATIONAL_PROGRESS_STATUSES = new Set([
     'ARRIVED_GATE',
     'GATE_IN',
@@ -764,7 +758,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
     }
 
     const newSchedule: ArrivalSchedule = {
-      id: `SCH-${Date.now().toString().slice(-6)}`,
+      id: `SCH-${Date.now()}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`,
       poId: currentPo.id,
       poNumber: currentPo.poNumber,
       supplierName: currentPo.supplierName,
@@ -801,7 +795,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
       return;
     }
 
-    const timestamp = Date.now().toString().slice(-6);
+    const timestamp = `${Date.now()}`;
     const newSchedules: ArrivalSchedule[] = multiRows.map((row, idx) => ({
       id: `SCH-${timestamp}-${(idx + 1).toString().padStart(2, '0')}`,
       poId: currentPo.id,
@@ -1411,7 +1405,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
       {/* Modal Add Schedule (Supports Single & Multi/Batch up to 20 data per PO) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
-          <div className="bg-white border border-slate-300 rounded-2xl max-w-2xl w-full p-4 sm:p-6 shadow-2xl my-4 sm:my-8 max-h-[90vh] overflow-y-auto text-slate-900">
+          <div className="bg-white border border-slate-300 rounded-2xl max-w-5xl w-full p-4 sm:p-6 shadow-2xl my-2 sm:my-4 max-h-[94vh] overflow-y-auto text-slate-900">
             {/* Modal Header */}
             <div className="flex justify-between items-center pb-3 border-b border-slate-200 mb-4">
               <div className="flex items-center gap-2.5">
@@ -1604,49 +1598,6 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                       </button>
                     </div>
 
-                    {/* Live Same-Day 2+ Rit / 2+ Armada Operational Advisor */}
-                    {multiRitDays.length > 0 ? (
-                      <div className="space-y-1.5">
-                        {multiRitDays.map((day) => {
-                          const totalTrucks = day.existingTrucksSameDate + day.draftTrucksSameDate;
-                          const totalKg = day.existingTonnageSameDate + day.draftTonnageSameDate;
-                          return (
-                            <div
-                              key={day.date}
-                              className="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-[11px] text-amber-950 space-y-1"
-                            >
-                              <div className="font-bold flex flex-wrap items-center justify-between gap-1">
-                                <span>
-                                  Rekomendasi Jadwal Padat ({formatDateOnly(day.date)}):{' '}
-                                  <span className="font-mono-num">
-                                    {totalTrucks} Armada / Rit ({totalKg.toLocaleString('id-ID')} Kg)
-                                  </span>
-                                </span>
-                                <span className="px-2 py-0.5 rounded bg-amber-200/70 text-amber-950 font-semibold text-[10px]">
-                                  2+ Rit Harian (Tiket Terpisah)
-                                </span>
-                              </div>
-                              <p className="text-amber-900 leading-relaxed">
-                                Atur jeda kedatangan ±3–4 jam (misal <strong>Armada 1: Pagi 08:00–10:00</strong> &amp;{' '}
-                                <strong>Armada 2: Siang 13:00–15:00</strong>) agar tidak antre di Pos Security,
-                                Jembatan Timbang, dan area bongkar {currentPo.destinationStockpile || 'Stockpile'}.
-                                {day.existingTrucksSameDate > 0 && (
-                                  <span>
-                                    {' '}
-                                    (Sudah ada {day.existingTrucksSameDate} armada aktif dari jadwal tersimpan pada tanggal ini.)
-                                  </span>
-                                )}
-                              </p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Tips 1 hari 2 kiriman: klik <strong>Rekomendasi: 2 Rit Terpisah (1 Hari)</strong> untuk membuat jadwal Armada 1 (Sesi Pagi) &amp; Armada 2 (Sesi Siang) dengan tiket Check-In Security masing-masing.
-                      </p>
-                    )}
-
                     {/* Error dari Endpoint Saran AI */}
                     {aiAdviceError && (
                       <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-300 text-rose-900 text-[11px] flex items-start gap-2">
@@ -1705,17 +1656,17 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                 )}
 
                 {/* Rows List */}
-                <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
+                <div className="space-y-3 max-h-[54vh] overflow-y-auto pr-1">
                   {multiRows.map((row, idx) => {
                     const rowSlotNumber = poScheduleCount + idx + 1;
                     return (
                       <div
                         key={row.id}
-                        className="bg-slate-50/80 border border-slate-200 rounded-xl p-3.5 space-y-2.5 relative group shadow-xs"
+                        className="bg-slate-50/80 border border-slate-200 rounded-xl p-3.5 sm:p-4 space-y-2.5 relative group shadow-xs"
                       >
                         <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
-                          <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5 font-mono-num">
-                            <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center justify-center text-[10px] font-bold">
+                          <span className="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-2 font-mono-num">
+                            <span className="w-6 h-6 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center justify-center text-[11px] font-bold">
                               {idx + 1}
                             </span>
                             Data Jadwal #{idx + 1} (Jadwal ke-{rowSlotNumber} dari 20)
@@ -1725,16 +1676,16 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                             type="button"
                             onClick={() => handleRemoveMultiRow(row.id)}
                             disabled={multiRows.length <= 1}
-                            className="p-1 text-slate-400 hover:text-rose-600 disabled:opacity-30 transition-colors cursor-pointer"
+                            className="p-1.5 text-slate-400 hover:text-rose-600 disabled:opacity-30 transition-colors cursor-pointer"
                             title="Hapus baris jadwal ini"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
-                          <div>
-                            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
+                          <div className="md:col-span-3">
+                            <label className="block text-xs font-semibold text-slate-700 mb-1">
                               Tanggal Estimasi Tiba (ETA) *
                             </label>
                             <div className="relative flex items-center">
@@ -1751,7 +1702,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                                 className="absolute left-2.5 text-amber-600 hover:text-amber-700 p-0.5 hover:bg-amber-50 rounded transition-transform hover:scale-110 active:scale-95 cursor-pointer z-10"
                                 title="Klik untuk membuka kalender otomatis"
                               >
-                                <Calendar className="w-3.5 h-3.5" />
+                                <Calendar className="w-4 h-4" />
                               </button>
                               <input
                                 type="date"
@@ -1763,13 +1714,13 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                                   } catch (err) {}
                                 }}
                                 onChange={(e) => handleUpdateMultiRow(row.id, 'etaDateTime', e.target.value)}
-                                className="w-full bg-white border border-slate-300 rounded pl-8 pr-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-amber-500 font-mono-num cursor-pointer"
+                                className="w-full bg-white border border-slate-300 rounded-lg pl-9 pr-2.5 py-2 text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-amber-500 font-mono-num cursor-pointer"
                               />
                             </div>
                           </div>
 
-                          <div>
-                            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                          <div className="md:col-span-3">
+                            <label className="block text-xs font-semibold text-slate-700 mb-1">
                               Estimasi Berat Muatan (Kg) *
                             </label>
                             <input
@@ -1779,12 +1730,12 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                               value={row.estimatedTonnage}
                               onChange={(e) => handleUpdateMultiRow(row.id, 'estimatedTonnage', e.target.value)}
                               placeholder="Contoh: 28201"
-                              className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-amber-500 font-mono-num"
+                              className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-amber-500 font-mono-num"
                             />
                           </div>
 
-                          <div>
-                            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                          <div className="md:col-span-2">
+                            <label className="block text-xs font-semibold text-slate-700 mb-1">
                               Estimasi Rit / Truk
                             </label>
                             <input
@@ -1792,19 +1743,22 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                               min={1}
                               value={row.estimatedTruckCount}
                               onChange={(e) => handleUpdateMultiRow(row.id, 'estimatedTruckCount', Number(e.target.value))}
-                              className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-amber-500 font-mono-num"
+                              className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-amber-500 font-mono-num"
                             />
                           </div>
-                        </div>
 
-                        <div>
-                          <input
-                            type="text"
-                            placeholder="Catatan / keterangan pengiriman (opsional)"
-                            value={row.remarks}
-                            onChange={(e) => handleUpdateMultiRow(row.id, 'remarks', e.target.value.toUpperCase())}
-                            className="w-full bg-white border border-slate-300 rounded px-2.5 py-1 text-[11px] text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 uppercase"
-                          />
+                          <div className="md:col-span-4">
+                            <label className="block text-xs font-semibold text-slate-700 mb-1">
+                              Keterangan Pengiriman
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="Catatan / keterangan pengiriman (opsional)"
+                              value={row.remarks}
+                              onChange={(e) => handleUpdateMultiRow(row.id, 'remarks', e.target.value.toUpperCase())}
+                              className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 uppercase"
+                            />
+                          </div>
                         </div>
                       </div>
                     );
@@ -1858,18 +1812,18 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
       {/* ===================== MODAL REVISI JADWAL PENGIRIMAN ===================== */}
       {editingSchedule && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-4 sm:p-6 shadow-2xl my-4 flex flex-col">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-5 sm:p-7 shadow-2xl my-4 flex flex-col max-h-[94vh] overflow-y-auto">
             {/* Header */}
-            <div className="flex justify-between items-center pb-3 border-b border-slate-800 mb-4 shrink-0">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20">
+            <div className="flex justify-between items-center pb-3.5 border-b border-slate-800 mb-5 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20">
                   <Pencil className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-white tracking-tight">
+                  <h3 className="text-lg font-bold text-white tracking-tight">
                     Revisi Jadwal Pengiriman
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs sm:text-sm text-slate-400">
                     Revisi estimasi berat muatan atau jadwal ID <strong className="text-amber-400 font-mono-num">{editingSchedule.id}</strong>
                   </p>
                 </div>
@@ -1877,71 +1831,86 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
               <button
                 type="button"
                 onClick={() => setEditingSchedule(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Form */}
-            <form onSubmit={handleSaveEditSchedule} className="space-y-4">
+            <form onSubmit={handleSaveEditSchedule} className="space-y-5">
               {editError && (
-                <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs font-semibold text-rose-900 flex items-center gap-2">
+                <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs sm:text-sm font-semibold text-rose-900 flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
                   <span>{editError}</span>
                 </div>
               )}
               {/* Sync Notice Badge */}
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 text-xs">
+              <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-lg bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 text-xs sm:text-sm">
                 <FileSpreadsheet className="w-4 h-4 shrink-0 text-emerald-400" />
                 <span>
-                  Perubahan data jadwal otomatis disinkronkan ke <strong>Google Sheets</strong> (tab <em>JADWAL_KEDATANGAN</em>).
+                  Perubahan data jadwal otomatis tersimpan dan disinkronkan ke <strong>Google Sheets</strong> (tab <em>JADWAL_KEDATANGAN</em>).
                 </span>
               </div>
 
               {/* Readonly Info */}
-              <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 text-xs grid grid-cols-2 gap-2">
+              <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800 text-xs sm:text-sm grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <span className="text-slate-400 block text-[10px]">Nomor PO:</span>
-                  <span className="font-bold text-amber-400 font-mono-num">{editingSchedule.poNumber}</span>
+                  <span className="text-slate-400 block text-xs">Nomor PO:</span>
+                  <span className="font-bold text-amber-400 font-mono-num text-sm sm:text-base">{editingSchedule.poNumber}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[10px]">Supplier:</span>
-                  <span className="font-semibold text-white truncate block">{editingSchedule.supplierName}</span>
+                  <span className="text-slate-400 block text-xs">Supplier:</span>
+                  <span className="font-semibold text-white truncate block text-sm sm:text-base">{editingSchedule.supplierName}</span>
                 </div>
               </div>
 
               {/* Editable Fields */}
-              <div className="space-y-3.5">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    Estimasi Berat Muatan (Kg) <span className="text-rose-400">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    required
-                    value={editScheduleData.estimatedTonnage}
-                    onChange={(e) => {
-                      let val = e.target.value;
-                      if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
-                        val = val.replace(/^0+/, '');
-                      }
-                      setEditScheduleData({ ...editScheduleData, estimatedTonnage: val });
-                    }}
-                    placeholder="Contoh: 28201"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-amber-400 font-bold focus:outline-none focus:border-amber-500 font-mono-num text-sm"
-                  />
-                  <span className="text-[10px] text-slate-500 mt-1 block">
-                    {editScheduleData.estimatedTonnage && Number(editScheduleData.estimatedTonnage) > 0
-                      ? `Setara dengan ${(Number(editScheduleData.estimatedTonnage) / 1000).toFixed(2)} Ton`
-                      : 'Masukkan berat muatan batubara dalam satuan Kilogram'}
-                  </span>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Estimasi Berat Muatan (Kg) <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      required
+                      value={editScheduleData.estimatedTonnage}
+                      onChange={(e) => {
+                        let val = e.target.value;
+                        if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
+                          val = val.replace(/^0+/, '');
+                        }
+                        setEditScheduleData({ ...editScheduleData, estimatedTonnage: val });
+                      }}
+                      placeholder="Contoh: 28201"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-amber-400 font-bold focus:outline-none focus:border-amber-500 font-mono-num"
+                    />
+                    <span className="text-[11px] text-slate-500 mt-1 block">
+                      {editScheduleData.estimatedTonnage && Number(editScheduleData.estimatedTonnage) > 0
+                        ? `Setara dengan ${(Number(editScheduleData.estimatedTonnage) / 1000).toFixed(2)} Ton`
+                        : 'Masukkan berat muatan batubara dalam satuan Kilogram'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Estimasi Ritase / Armada
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={editScheduleData.estimatedTruckCount}
+                      onChange={(e) => setEditScheduleData({ ...editScheduleData, estimatedTruckCount: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 font-mono-num"
+                    />
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                       Tanggal Estimasi Tiba (ETA) <span className="text-rose-600">*</span>
                     </label>
                     <div className="relative flex items-center">
@@ -1970,49 +1939,36 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                           } catch (err) {}
                         }}
                         onChange={(e) => setEditScheduleData({ ...editScheduleData, etaDateTime: e.target.value })}
-                        className="w-full bg-white border border-slate-300 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500 font-mono-num cursor-pointer"
+                        className="w-full bg-white border border-slate-300 rounded-lg pl-10 pr-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus:border-amber-500 font-mono-num cursor-pointer"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                      Estimasi Ritase / Armada
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Status Kedatangan
                     </label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={editScheduleData.estimatedTruckCount}
-                      onChange={(e) => setEditScheduleData({ ...editScheduleData, estimatedTruckCount: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono-num"
-                    />
+                    <select
+                      value={editScheduleData.status}
+                      onChange={(e) => setEditScheduleData({ ...editScheduleData, status: e.target.value as ArrivalSchedule['status'] })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 font-semibold"
+                    >
+                      <option value="ON_WAY">Sedang di Jalan (ON_WAY)</option>
+                      <option value="SCHEDULED">Terjadwal (SCHEDULED)</option>
+                      <option value="ARRIVED_GATE">Tiba di Pos Security (ARRIVED_GATE)</option>
+                      <option value="TIMBANG_MASUK">Timbang Masuk / Gross (TIMBANG_MASUK)</option>
+                      <option value="BONGKAR">Bongkar di Stockpile (BONGKAR)</option>
+                      <option value="TIMBANG_KELUAR">Timbang Keluar / Tare (TIMBANG_KELUAR)</option>
+                      <option value="GATE_OUT">Menunggu Gate Out (GATE_OUT)</option>
+                      <option value="COMPLETED">Selesai / Keluar Pabrik (COMPLETED)</option>
+                      <option value="OVERDUE">Lewat Jadwal / Terlambat (OVERDUE)</option>
+                      <option value="CANCELLED">Batal Pengiriman / No-Show (CANCELLED)</option>
+                    </select>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    Status Kedatangan
-                  </label>
-                  <select
-                    value={editScheduleData.status}
-                    onChange={(e) => setEditScheduleData({ ...editScheduleData, status: e.target.value as ArrivalSchedule['status'] })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-semibold"
-                  >
-                    <option value="ON_WAY">Sedang di Jalan (ON_WAY)</option>
-                    <option value="SCHEDULED">Terjadwal (SCHEDULED)</option>
-                    <option value="ARRIVED_GATE">Tiba di Pos Security (ARRIVED_GATE)</option>
-                    <option value="TIMBANG_MASUK">Timbang Masuk / Gross (TIMBANG_MASUK)</option>
-                    <option value="BONGKAR">Bongkar di Stockpile (BONGKAR)</option>
-                    <option value="TIMBANG_KELUAR">Timbang Keluar / Tare (TIMBANG_KELUAR)</option>
-                    <option value="GATE_OUT">Menunggu Gate Out (GATE_OUT)</option>
-                    <option value="COMPLETED">Selesai / Keluar Pabrik (COMPLETED)</option>
-                    <option value="OVERDUE">Lewat Jadwal / Terlambat (OVERDUE)</option>
-                    <option value="CANCELLED">Batal Pengiriman / No-Show (CANCELLED)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                     Keterangan / Catatan Tambahan
                   </label>
                   <input
@@ -2020,36 +1976,36 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                     value={editScheduleData.remarks}
                     onChange={(e) => setEditScheduleData({ ...editScheduleData, remarks: e.target.value })}
                     placeholder="Contoh: Pengiriman rit ke-1 atau instruksi khusus..."
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
                   />
                 </div>
               </div>
 
               {/* Footer */}
-              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
+              <div className="flex flex-wrap items-center justify-end gap-2.5 pt-4 border-t border-slate-800">
                 {onDeleteSchedule && (
                   <button
                     type="button"
                     onClick={() => setDeletingSchedule(editingSchedule)}
-                    className="mr-auto px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 border border-rose-500/30 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                    className="mr-auto px-4 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 border border-rose-500/30 rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-4 h-4" />
                     <span>Hapus Jadwal (Kembalikan Kuota)</span>
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => setEditingSchedule(null)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-sky-500 hover:bg-sky-600 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  className="px-5 py-2.5 bg-sky-500 hover:bg-sky-600 text-slate-950 font-bold text-xs sm:text-sm rounded-lg transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer"
                 >
-                  <Pencil className="w-3.5 h-3.5" />
-                  <span>Simpan Revisi & Sinkronkan</span>
+                  <Pencil className="w-4 h-4" />
+                  <span>Simpan Revisi &amp; Sinkronkan</span>
                 </button>
               </div>
             </form>

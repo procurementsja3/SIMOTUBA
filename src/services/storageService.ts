@@ -19,6 +19,65 @@ const STORAGE_KEYS = {
   SHEET_CONFIG: 'coal_monitor_sheet_config_v2',
   AUDIT_LOGS: 'coal_monitor_audit_logs_v1',
   CLEARED_DUMMY_FLAG: 'coal_monitor_cleared_dummy_v2_done',
+  SYNC_STATE: 'coal_monitor_cloud_sync_state_v1',
+};
+
+export type SyncEntityKind = 'po' | 'schedule' | 'transaction';
+
+export interface PendingCloudSyncState {
+  upsertPoIds: string[];
+  upsertScheduleIds: string[];
+  upsertTransactionIds: string[];
+  deletePoIds: string[];
+  deleteScheduleIds: string[];
+  deleteTransactionIds: string[];
+  knownCloudPoIds: string[];
+  knownCloudScheduleIds: string[];
+  knownCloudTransactionIds: string[];
+  pendingClearAll: boolean;
+}
+
+const createEmptySyncState = (): PendingCloudSyncState => ({
+  upsertPoIds: [],
+  upsertScheduleIds: [],
+  upsertTransactionIds: [],
+  deletePoIds: [],
+  deleteScheduleIds: [],
+  deleteTransactionIds: [],
+  knownCloudPoIds: [],
+  knownCloudScheduleIds: [],
+  knownCloudTransactionIds: [],
+  pendingClearAll: false,
+});
+
+const getSyncKeyNames = (kind: SyncEntityKind) => {
+  if (kind === 'po') {
+    return {
+      upsertKey: 'upsertPoIds' as const,
+      deleteKey: 'deletePoIds' as const,
+      knownKey: 'knownCloudPoIds' as const,
+    };
+  }
+  if (kind === 'schedule') {
+    return {
+      upsertKey: 'upsertScheduleIds' as const,
+      deleteKey: 'deleteScheduleIds' as const,
+      knownKey: 'knownCloudScheduleIds' as const,
+    };
+  }
+  return {
+    upsertKey: 'upsertTransactionIds' as const,
+    deleteKey: 'deleteTransactionIds' as const,
+    knownKey: 'knownCloudTransactionIds' as const,
+  };
+};
+
+const uniqueIds = (ids: string[]): string[] => Array.from(new Set(ids.filter(Boolean)));
+
+const parseTimestampMs = (val?: string): number => {
+  if (!val) return 0;
+  const ms = new Date(val).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
 };
 
 const DEFAULT_SHEET_CONFIG: GoogleSheetConfig = {
@@ -132,6 +191,180 @@ purgeDummyData();
 migrateDefaultToleranceToFivePercent();
 
 export const storageService = {
+  getSyncState(): PendingCloudSyncState {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.SYNC_STATE);
+      if (!raw) return createEmptySyncState();
+      return { ...createEmptySyncState(), ...JSON.parse(raw) };
+    } catch {
+      return createEmptySyncState();
+    }
+  },
+
+  saveSyncState(state: PendingCloudSyncState): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.SYNC_STATE, JSON.stringify(state));
+    } catch (e) {
+      console.error('Failed saving sync state:', e);
+    }
+  },
+
+  markLocalUpserts(kind: SyncEntityKind, ids: string[]): void {
+    if (ids.length === 0) return;
+    const state = this.getSyncState();
+    const { upsertKey, deleteKey } = getSyncKeyNames(kind);
+    const idSet = new Set(ids);
+    state[upsertKey] = uniqueIds([...state[upsertKey], ...ids]);
+    state[deleteKey] = state[deleteKey].filter((id) => !idSet.has(id));
+    state.pendingClearAll = false;
+    this.saveSyncState(state);
+  },
+
+  markLocalDeletes(kind: SyncEntityKind, ids: string[]): void {
+    if (ids.length === 0) return;
+    const state = this.getSyncState();
+    const { upsertKey, deleteKey, knownKey } = getSyncKeyNames(kind);
+    const idSet = new Set(ids);
+    state[deleteKey] = uniqueIds([...state[deleteKey], ...ids]);
+    state[upsertKey] = state[upsertKey].filter((id) => !idSet.has(id));
+    state[knownKey] = state[knownKey].filter((id) => !idSet.has(id));
+    this.saveSyncState(state);
+  },
+
+  markCloudUpsertsAcked(kind: SyncEntityKind, ids: string[]): void {
+    if (ids.length === 0) return;
+    const state = this.getSyncState();
+    const { upsertKey, knownKey } = getSyncKeyNames(kind);
+    const idSet = new Set(ids);
+    state[upsertKey] = state[upsertKey].filter((id) => !idSet.has(id));
+    state[knownKey] = uniqueIds([...state[knownKey], ...ids]);
+    this.saveSyncState(state);
+  },
+
+  markCloudDeletesAcked(kind: SyncEntityKind, ids: string[]): void {
+    if (ids.length === 0) return;
+    const state = this.getSyncState();
+    const { deleteKey, knownKey } = getSyncKeyNames(kind);
+    const idSet = new Set(ids);
+    state[deleteKey] = state[deleteKey].filter((id) => !idSet.has(id));
+    state[knownKey] = state[knownKey].filter((id) => !idSet.has(id));
+    this.saveSyncState(state);
+  },
+
+  markPendingClearAll(pending: boolean): void {
+    const state = this.getSyncState();
+    state.pendingClearAll = pending;
+    if (pending) {
+      state.upsertPoIds = [];
+      state.upsertScheduleIds = [];
+      state.upsertTransactionIds = [];
+      state.deletePoIds = [];
+      state.deleteScheduleIds = [];
+      state.deleteTransactionIds = [];
+      state.knownCloudPoIds = [];
+      state.knownCloudScheduleIds = [];
+      state.knownCloudTransactionIds = [];
+    }
+    this.saveSyncState(state);
+  },
+
+  clearSyncState(): void {
+    this.saveSyncState(createEmptySyncState());
+  },
+
+  /**
+   * Merge cloud snapshot with local storage without ever losing unsynced local saves
+   * or resurrecting locally deleted items.
+   */
+  mergeCloudCollection<T extends { id: string; updatedAt?: string; createdAt?: string }>(
+    kind: SyncEntityKind,
+    cloudItems: T[],
+    localItems: T[]
+  ): { merged: T[]; idsToPush: string[] } {
+    const state = this.getSyncState();
+    const { upsertKey, deleteKey, knownKey } = getSyncKeyNames(kind);
+
+    if (state.pendingClearAll) {
+      return { merged: [], idsToPush: [] };
+    }
+
+    const pendingUpsertSet = new Set(state[upsertKey]);
+    const pendingDeleteSet = new Set(state[deleteKey]);
+    const knownCloudSet = new Set(state[knownKey]);
+
+    const localMap = new Map(localItems.map((item) => [item.id, item]));
+    const cloudMap = new Map(cloudItems.map((item) => [item.id, item]));
+    const idsToPush = new Set<string>(state[upsertKey]);
+    const merged: T[] = [];
+
+    // 1. Walk cloud items (updating knownCloudIds except those pending local delete)
+    const nextKnownIds = new Set<string>(
+      cloudItems.filter((c) => !pendingDeleteSet.has(c.id)).map((c) => c.id)
+    );
+
+    for (const cloudItem of cloudItems) {
+      if (pendingDeleteSet.has(cloudItem.id)) {
+        continue;
+      }
+      const localItem = localMap.get(cloudItem.id);
+      if (!localItem) {
+        merged.push(cloudItem);
+        continue;
+      }
+
+      if (pendingUpsertSet.has(cloudItem.id)) {
+        merged.push(localItem);
+        idsToPush.add(localItem.id);
+        continue;
+      }
+
+      const localMs = parseTimestampMs(localItem.updatedAt || localItem.createdAt);
+      const cloudMs = parseTimestampMs(cloudItem.updatedAt || cloudItem.createdAt);
+      if (localMs > cloudMs) {
+        merged.push(localItem);
+        idsToPush.add(localItem.id);
+      } else {
+        merged.push(cloudItem);
+      }
+    }
+
+    // 2. Preserve local items not returned by cloud if:
+    //    - they are in pendingUpsertSet, OR
+    //    - they were never confirmed in cloud before, OR
+    //    - cloud returned 0 items for this collection (prevent wipe on transient/empty snapshot)
+    const cloudCollectionEmpty = cloudItems.length === 0;
+    for (const localItem of localItems) {
+      if (cloudMap.has(localItem.id) || pendingDeleteSet.has(localItem.id)) {
+        continue;
+      }
+      if (
+        pendingUpsertSet.has(localItem.id) ||
+        !knownCloudSet.has(localItem.id) ||
+        cloudCollectionEmpty
+      ) {
+        merged.push(localItem);
+        idsToPush.add(localItem.id);
+      }
+    }
+
+    // Persist any newly discovered unsynced local IDs & confirmed cloud IDs
+    const nextUpserts = uniqueIds(Array.from(idsToPush));
+    const nextKnown = uniqueIds(Array.from(nextKnownIds));
+    const changed =
+      nextUpserts.length !== state[upsertKey].length ||
+      nextKnown.length !== state[knownKey].length ||
+      nextUpserts.some((id, idx) => state[upsertKey][idx] !== id) ||
+      nextKnown.some((id, idx) => state[knownKey][idx] !== id);
+
+    if (changed) {
+      state[upsertKey] = nextUpserts;
+      state[knownKey] = nextKnown;
+      this.saveSyncState(state);
+    }
+
+    return { merged, idsToPush: nextUpserts };
+  },
+
   getPurchaseOrders(): PurchaseOrder[] {
     try {
       purgeDummyData();
@@ -258,12 +491,14 @@ export const storageService = {
     this.savePurchaseOrders([]);
     this.saveSchedules([]);
     this.saveTransactions([]);
+    this.clearSyncState();
   },
 
   resetToDefault(): void {
     this.savePurchaseOrders(INITIAL_PURCHASE_ORDERS);
     this.saveSchedules(INITIAL_SCHEDULES);
     this.saveTransactions(INITIAL_TRANSACTIONS);
+    this.clearSyncState();
   },
 
   exportFullBackupJSON(): string {

@@ -104,43 +104,101 @@ export default function App() {
     }
   }, []);
 
+  const toastTimerRef = React.useRef<number | null>(null);
+
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => {
+    if (toastTimerRef.current) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => {
       setToastMessage(null);
+      toastTimerRef.current = null;
     }, 4500);
   }, []);
 
   const persistToSimotubaFirebase = useCallback(
-    async (op: () => Promise<void>, contextLabel: string) => {
+    async (op: () => Promise<void>, contextLabel: string, onSuccess?: () => void) => {
       try {
         await op();
+        onSuccess?.();
       } catch (err) {
-        console.error(`Firestore sync (${contextLabel}) failed:`, err);
+        console.warn(`Firestore sync (${contextLabel}) deferred to local outbox:`, err);
         const msg = err instanceof Error ? err.message : String(err);
         if (
           msg.includes('permission-denied') ||
           msg.includes('Missing or insufficient permissions')
         ) {
-          showToast(
-            `Gagal simpan ${contextLabel} ke Firebase: pastikan Firestore Rules di project simotuba-bb sudah di-Publish.`
+          console.error(
+            `Firestore permission denied (${contextLabel}): pastikan Firestore Rules di project simotuba-bb sudah di-Publish. Data lokal tetap tersimpan.`
           );
         } else if (
           msg.includes('operation-not-allowed') ||
           msg.includes('admin-restricted-operation')
         ) {
-          showToast(
-            `Gagal simpan ${contextLabel} ke Firebase: pastikan Authentication Anonymous sudah aktif di simotuba-bb.`
-          );
-        } else {
-          showToast(
-            `Gagal sinkron ${contextLabel} ke Firebase (${msg}). Data lokal tetap tersimpan.`
+          console.error(
+            `Firebase Anonymous Auth disabled (${contextLabel}). Data lokal tetap tersimpan.`
           );
         }
       }
     },
-    [showToast]
+    []
   );
+
+  const flushPendingCloudSync = useCallback(async () => {
+    const syncState = storageService.getSyncState();
+    if (syncState.pendingClearAll) {
+      try {
+        await simotubaFirestoreService.clearAllCollections();
+        storageService.clearSyncState();
+      } catch (err) {
+        console.warn('Deferred cloud clearAll failed:', err);
+      }
+      return;
+    }
+
+    const currentPos = storageService.getPurchaseOrders();
+    const currentSchs = storageService.getSchedules();
+    const currentTxs = storageService.getTransactions();
+
+    const poUpsertSet = new Set(syncState.upsertPoIds);
+    const schUpsertSet = new Set(syncState.upsertScheduleIds);
+    const txUpsertSet = new Set(syncState.upsertTransactionIds);
+
+    const upsertPos = currentPos.filter((p) => poUpsertSet.has(p.id));
+    const upsertSchedules = currentSchs.filter((s) => schUpsertSet.has(s.id));
+    const upsertTransactions = currentTxs.filter((t) => txUpsertSet.has(t.id));
+
+    const hasPending =
+      upsertPos.length > 0 ||
+      upsertSchedules.length > 0 ||
+      upsertTransactions.length > 0 ||
+      syncState.deletePoIds.length > 0 ||
+      syncState.deleteScheduleIds.length > 0 ||
+      syncState.deleteTransactionIds.length > 0;
+
+    if (!hasPending) return;
+
+    try {
+      await simotubaFirestoreService.flushPendingOperations({
+        upsertPos,
+        upsertSchedules,
+        upsertTransactions,
+        deletePoIds: syncState.deletePoIds,
+        deleteScheduleIds: syncState.deleteScheduleIds,
+        deleteTransactionIds: syncState.deleteTransactionIds,
+      });
+
+      storageService.markCloudUpsertsAcked('po', upsertPos.map((p) => p.id));
+      storageService.markCloudUpsertsAcked('schedule', upsertSchedules.map((s) => s.id));
+      storageService.markCloudUpsertsAcked('transaction', upsertTransactions.map((t) => t.id));
+      storageService.markCloudDeletesAcked('po', syncState.deletePoIds);
+      storageService.markCloudDeletesAcked('schedule', syncState.deleteScheduleIds);
+      storageService.markCloudDeletesAcked('transaction', syncState.deleteTransactionIds);
+    } catch (err) {
+      console.warn('Deferred flushPendingCloudSync failed:', err);
+    }
+  }, []);
 
   // Load initial local cache + connect silently to simotuba-bb Firestore via Anonymous Auth
   useEffect(() => {
@@ -176,38 +234,67 @@ export default function App() {
         const cloud = await simotubaFirestoreService.fetchAllSnapshot();
         if (isDisposed) return;
 
-        const cloudIsEmpty =
-          cloud.purchaseOrders.length === 0 &&
-          cloud.schedules.length === 0 &&
-          cloud.transactions.length === 0;
-        const localHasData =
-          localPos.length > 0 || localSchs.length > 0 || localTxs.length > 0;
+        // Read freshest local cache in case user saved data while auth/snapshot was in-flight
+        const latestLocalPos = storageService.getPurchaseOrders();
+        const latestLocalSchs = storageService.getSchedules();
+        const latestLocalTxs = storageService.getTransactions();
 
-        if (cloudIsEmpty && localHasData) {
-          await simotubaFirestoreService.replaceAllCollections(localPos, localSchs, localTxs);
-        } else if (!cloudIsEmpty) {
-          setPurchaseOrders(cloud.purchaseOrders);
-          storageService.savePurchaseOrders(cloud.purchaseOrders);
-          setSchedules(cloud.schedules);
-          storageService.saveSchedules(cloud.schedules);
-          setTransactions(cloud.transactions);
-          storageService.saveTransactions(cloud.transactions);
-        }
+        const sortPos = (list: PurchaseOrder[]) =>
+          [...list].sort(
+            (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+          );
+        const sortSchedules = (list: ArrivalSchedule[]) =>
+          [...list].sort(
+            (a, b) =>
+              new Date(b.createdAt || b.etaDateTime || 0).getTime() -
+              new Date(a.createdAt || a.etaDateTime || 0).getTime()
+          );
+        const sortTransactions = (list: CoalTransaction[]) =>
+          [...list].sort(
+            (a, b) => new Date(b.gateInTime || 0).getTime() - new Date(a.gateInTime || 0).getTime()
+          );
+
+        const poMerge = storageService.mergeCloudCollection('po', cloud.purchaseOrders, latestLocalPos);
+        const schMerge = storageService.mergeCloudCollection('schedule', cloud.schedules, latestLocalSchs);
+        const txMerge = storageService.mergeCloudCollection('transaction', cloud.transactions, latestLocalTxs);
+
+        const nextPosMerged = sortPos(poMerge.merged);
+        const nextSchsMerged = sortSchedules(schMerge.merged);
+        const nextTxsMerged = sortTransactions(txMerge.merged);
+
+        setPurchaseOrders(nextPosMerged);
+        storageService.savePurchaseOrders(nextPosMerged);
+        setSchedules(nextSchsMerged);
+        storageService.saveSchedules(nextSchsMerged);
+        setTransactions(nextTxsMerged);
+        storageService.saveTransactions(nextTxsMerged);
 
         if (isDisposed) return;
 
+        // Push any unsynced local creates/updates/deletes up to Firestore
+        void flushPendingCloudSync();
+
         unsubscribeFirestore = simotubaFirestoreService.subscribeAll({
           onPurchaseOrders: (nextPos) => {
-            setPurchaseOrders(nextPos);
-            storageService.savePurchaseOrders(nextPos);
+            const latestLocal = storageService.getPurchaseOrders();
+            const { merged } = storageService.mergeCloudCollection('po', nextPos, latestLocal);
+            const sorted = sortPos(merged);
+            setPurchaseOrders(sorted);
+            storageService.savePurchaseOrders(sorted);
           },
           onSchedules: (nextSchs) => {
-            setSchedules(nextSchs);
-            storageService.saveSchedules(nextSchs);
+            const latestLocal = storageService.getSchedules();
+            const { merged } = storageService.mergeCloudCollection('schedule', nextSchs, latestLocal);
+            const sorted = sortSchedules(merged);
+            setSchedules(sorted);
+            storageService.saveSchedules(sorted);
           },
           onTransactions: (nextTxs) => {
-            setTransactions(nextTxs);
-            storageService.saveTransactions(nextTxs);
+            const latestLocal = storageService.getTransactions();
+            const { merged } = storageService.mergeCloudCollection('transaction', nextTxs, latestLocal);
+            const sorted = sortTransactions(merged);
+            setTransactions(sorted);
+            storageService.saveTransactions(sorted);
           },
           onError: (err) => {
             console.warn('Firestore realtime listener warning:', err);
@@ -218,14 +305,7 @@ export default function App() {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes('operation-not-allowed') || msg.includes('admin-restricted-operation')) {
           showToast(
-            'Aktifkan Authentication → Sign-in method → Anonymous pada project simotuba-bb agar sinkronisasi Firebase aktif.'
-          );
-        } else if (
-          msg.includes('permission-denied') ||
-          msg.includes('Missing or insufficient permissions')
-        ) {
-          showToast(
-            'Publish Firestore Rules pada project simotuba-bb agar aplikasi bisa membaca & menyimpan data.'
+            'Mode lokal aktif: aktifkan Anonymous Sign-in di simotuba-bb bila butuh sinkron antar perangkat.'
           );
         }
       }
@@ -233,12 +313,18 @@ export default function App() {
 
     initSimotubaFirestore();
 
+    const handleOnline = () => {
+      void flushPendingCloudSync();
+    };
+    window.addEventListener('online', handleOnline);
+
     return () => {
       isDisposed = true;
+      window.removeEventListener('online', handleOnline);
       unsubscribeAuth();
       unsubscribeFirestore?.();
     };
-  }, [showToast]);
+  }, [showToast, flushPendingCloudSync]);
 
   const buildAuditEntry = (
     action: string,
@@ -861,7 +947,12 @@ export default function App() {
   const handleSavePo = async (newPo: PurchaseOrder | PurchaseOrder[]) => {
     if (!requireRole('ADMIN')) return;
 
-    const toAdd = Array.isArray(newPo) ? newPo : [newPo];
+    const nowIso = new Date().toISOString();
+    const toAdd = (Array.isArray(newPo) ? newPo : [newPo]).map((p) => ({
+      ...p,
+      createdAt: p.createdAt || nowIso,
+      updatedAt: nowIso,
+    }));
     const poNumbers = toAdd.map((p) => p.poNumber).join(', ');
     const auditEntry = buildAuditEntry(
       'CREATE_PO',
@@ -871,13 +962,16 @@ export default function App() {
     );
 
     const nextPos = [...toAdd, ...purchaseOrders];
+    const poIds = toAdd.map((p) => p.id);
+    storageService.markLocalUpserts('po', poIds);
     setPurchaseOrders(nextPos);
     storageService.savePurchaseOrders(nextPos);
     const nextLogs = appendLocalAuditLog(auditEntry);
 
     void persistToSimotubaFirebase(
       () => simotubaFirestoreService.savePurchaseOrders(toAdd),
-      'PO baru'
+      'PO baru',
+      () => storageService.markCloudUpsertsAcked('po', poIds)
     );
 
     showToast(
@@ -948,37 +1042,62 @@ export default function App() {
       return recalc;
     });
 
-    const updatedPos = purchaseOrders.map((p) => (p.id === updatedPo.id ? updatedPo : p));
+    const nowIso = new Date().toISOString();
+    const stampedPo: PurchaseOrder = { ...updatedPo, updatedAt: nowIso };
+    const stampedSchedules = affectedSchedules.map((s) => ({ ...s, updatedAt: nowIso }));
+    const stampedTransactions = affectedTransactions.map((t) => ({ ...t, updatedAt: nowIso }));
+
+    const updatedPos = purchaseOrders.map((p) => (p.id === stampedPo.id ? stampedPo : p));
     const updatedSchedules = schedules.map(
-      (s) => affectedSchedules.find((a) => a.id === s.id) || s
+      (s) => stampedSchedules.find((a) => a.id === s.id) || s
+    );
+    const syncedTransactions = transactions.map(
+      (t) => stampedTransactions.find((a) => a.id === t.id) || t
     );
 
     const auditEntry = buildAuditEntry(
       'UPDATE_PO',
       'PO',
-      updatedPo.id,
-      `Perbarui PO ${updatedPo.poNumber} (${updatedPo.status})`,
-      `Target: ${updatedPo.targetTonnage} Kg · Toleransi: ±${tol}%`
+      stampedPo.id,
+      `Perbarui PO ${stampedPo.poNumber} (${stampedPo.status})`,
+      `Target: ${stampedPo.targetTonnage} Kg · Toleransi: ±${tol}%`
     );
+
+    storageService.markLocalUpserts('po', [stampedPo.id]);
+    if (stampedSchedules.length > 0) {
+      storageService.markLocalUpserts('schedule', stampedSchedules.map((s) => s.id));
+    }
+    if (stampedTransactions.length > 0) {
+      storageService.markLocalUpserts('transaction', stampedTransactions.map((t) => t.id));
+    }
 
     setPurchaseOrders(updatedPos);
     storageService.savePurchaseOrders(updatedPos);
     setSchedules(updatedSchedules);
     storageService.saveSchedules(updatedSchedules);
-    if (affectedTransactions.length > 0) {
-      setTransactions(updatedTransactions);
-      storageService.saveTransactions(updatedTransactions);
+    if (stampedTransactions.length > 0) {
+      setTransactions(syncedTransactions);
+      storageService.saveTransactions(syncedTransactions);
     }
     const nextLogs = appendLocalAuditLog(auditEntry);
 
     void persistToSimotubaFirebase(
       () =>
         simotubaFirestoreService.updatePurchaseOrderCascade(
-          updatedPo,
-          affectedSchedules,
-          affectedTransactions
+          stampedPo,
+          stampedSchedules,
+          stampedTransactions
         ),
-      `Edit PO ${updatedPo.poNumber}`
+      `Edit PO ${stampedPo.poNumber}`,
+      () => {
+        storageService.markCloudUpsertsAcked('po', [stampedPo.id]);
+        if (stampedSchedules.length > 0) {
+          storageService.markCloudUpsertsAcked('schedule', stampedSchedules.map((s) => s.id));
+        }
+        if (stampedTransactions.length > 0) {
+          storageService.markCloudUpsertsAcked('transaction', stampedTransactions.map((t) => t.id));
+        }
+      }
     );
 
     showToast(`Purchase Order ${updatedPo.poNumber} berhasil diperbarui & disimpan!`);
@@ -1021,6 +1140,11 @@ export default function App() {
       `Hapus PO ${targetPo?.poNumber || poId} beserta ${connectedScheduleIds.length} jadwal`
     );
 
+    storageService.markLocalDeletes('po', [poId]);
+    if (connectedScheduleIds.length > 0) {
+      storageService.markLocalDeletes('schedule', connectedScheduleIds);
+    }
+
     setPurchaseOrders(updatedPos);
     storageService.savePurchaseOrders(updatedPos);
     setSchedules(updatedSchedules);
@@ -1029,7 +1153,13 @@ export default function App() {
 
     void persistToSimotubaFirebase(
       () => simotubaFirestoreService.deletePurchaseOrderAndSchedules(poId, connectedScheduleIds),
-      `Hapus PO ${targetPo?.poNumber || poId}`
+      `Hapus PO ${targetPo?.poNumber || poId}`,
+      () => {
+        storageService.markCloudDeletesAcked('po', [poId]);
+        if (connectedScheduleIds.length > 0) {
+          storageService.markCloudDeletesAcked('schedule', connectedScheduleIds);
+        }
+      }
     );
 
     showToast(`Purchase Order ${targetPo?.poNumber || ''} berhasil dihapus!`);
@@ -1051,8 +1181,14 @@ export default function App() {
   const handleSaveSchedule = async (newSchedule: ArrivalSchedule | ArrivalSchedule[]) => {
     if (!requireRole('ADMIN')) return;
 
-    const toAdd = Array.isArray(newSchedule) ? newSchedule : [newSchedule];
+    const nowIso = new Date().toISOString();
+    const toAdd = (Array.isArray(newSchedule) ? newSchedule : [newSchedule]).map((s) => ({
+      ...s,
+      createdAt: s.createdAt || nowIso,
+      updatedAt: nowIso,
+    }));
     const updated = [...toAdd, ...schedules];
+    const schIds = toAdd.map((s) => s.id);
     const auditEntry = buildAuditEntry(
       'CREATE_SCHEDULE',
       'SCHEDULE',
@@ -1060,6 +1196,7 @@ export default function App() {
       `Buat ${toAdd.length} jadwal kedatangan untuk PO ${toAdd[0]?.poNumber || ''}`
     );
 
+    storageService.markLocalUpserts('schedule', schIds);
     setSchedules(updated);
     storageService.saveSchedules(updated);
     const nextLogs = appendLocalAuditLog(auditEntry);
@@ -1067,7 +1204,8 @@ export default function App() {
 
     void persistToSimotubaFirebase(
       () => simotubaFirestoreService.saveSchedules(toAdd),
-      'Jadwal Kedatangan'
+      'Jadwal Kedatangan',
+      () => storageService.markCloudUpsertsAcked('schedule', schIds)
     );
 
     if (toAdd.length === 1) {
@@ -1091,28 +1229,32 @@ export default function App() {
   const handleUpdateSchedule = async (updatedSch: ArrivalSchedule) => {
     if (!requireRole('ADMIN')) return;
 
-    const updatedSchedules = schedules.map((s) => (s.id === updatedSch.id ? updatedSch : s));
+    const nowIso = new Date().toISOString();
+    const stampedSch: ArrivalSchedule = { ...updatedSch, updatedAt: nowIso };
+    const updatedSchedules = schedules.map((s) => (s.id === stampedSch.id ? stampedSch : s));
     const auditEntry = buildAuditEntry(
       'UPDATE_SCHEDULE',
       'SCHEDULE',
-      updatedSch.id,
-      `Revisi jadwal ${updatedSch.id} (PO ${updatedSch.poNumber}) · Status: ${updatedSch.status}`
+      stampedSch.id,
+      `Revisi jadwal ${stampedSch.id} (PO ${stampedSch.poNumber}) · Status: ${stampedSch.status}`
     );
 
+    storageService.markLocalUpserts('schedule', [stampedSch.id]);
     setSchedules(updatedSchedules);
     storageService.saveSchedules(updatedSchedules);
     const nextLogs = appendLocalAuditLog(auditEntry);
 
     void persistToSimotubaFirebase(
-      () => simotubaFirestoreService.saveSchedules([updatedSch]),
-      `Revisi Jadwal ${updatedSch.id}`
+      () => simotubaFirestoreService.saveSchedules([stampedSch]),
+      `Revisi Jadwal ${stampedSch.id}`,
+      () => storageService.markCloudUpsertsAcked('schedule', [stampedSch.id])
     );
 
-    showToast(`Jadwal ${updatedSch.id} (PO ${updatedSch.poNumber}) berhasil direvisi!`);
+    showToast(`Jadwal ${stampedSch.id} (PO ${stampedSch.poNumber}) berhasil direvisi!`);
 
     promptSheetMutation({
-      title: `Perbarui Jadwal ${updatedSch.id} di Google Sheets?`,
-      description: `Revisi jadwal PO ${updatedSch.poNumber} (Status: ${updatedSch.status}) akan diperbarui pada tab JADWAL_KEDATANGAN.`,
+      title: `Perbarui Jadwal ${stampedSch.id} di Google Sheets?`,
+      description: `Revisi jadwal PO ${stampedSch.poNumber} (Status: ${stampedSch.status}) akan diperbarui pada tab JADWAL_KEDATANGAN.`,
       affectedTabs: [SHEET_TABS.SCHEDULES, SHEET_TABS.AUDIT],
       nextPos: purchaseOrders,
       nextSchs: updatedSchedules,
@@ -1133,13 +1275,15 @@ export default function App() {
       `Hapus jadwal pengiriman ${schId}`
     );
 
+    storageService.markLocalDeletes('schedule', [schId]);
     setSchedules(updatedSchedules);
     storageService.saveSchedules(updatedSchedules);
     const nextLogs = appendLocalAuditLog(auditEntry);
 
     void persistToSimotubaFirebase(
       () => simotubaFirestoreService.deleteSchedule(schId),
-      `Hapus Jadwal ${schId}`
+      `Hapus Jadwal ${schId}`,
+      () => storageService.markCloudDeletesAcked('schedule', [schId])
     );
 
     showToast(`Jadwal ${schId} berhasil dihapus!`);
@@ -1172,14 +1316,16 @@ export default function App() {
   ): ArrivalSchedule[] => {
     if (!targetTx?.scheduleId) return currentSchedules;
     let changed = false;
+    const nowIso = new Date().toISOString();
     const updatedSchedules = currentSchedules.map((s) => {
       if (s.id === targetTx.scheduleId && s.status !== 'CANCELLED' && s.status !== nextStatus) {
         changed = true;
-        return { ...s, status: nextStatus };
+        return { ...s, status: nextStatus, updatedAt: nowIso };
       }
       return s;
     });
     if (changed) {
+      storageService.markLocalUpserts('schedule', [targetTx.scheduleId]);
       setSchedules(updatedSchedules);
       storageService.saveSchedules(updatedSchedules);
     }
@@ -1213,10 +1359,13 @@ export default function App() {
       : newTx;
 
     const resolvedRit = resolveTransactionRitInfo(baseNewTx, [baseNewTx, ...transactions], schedules);
+    const nowIso = new Date().toISOString();
     const finalNewTx: CoalTransaction = {
       ...baseNewTx,
       ritCategory: baseNewTx.ritCategory || resolvedRit.ritCategory,
       ritRemarks: baseNewTx.ritRemarks || resolvedRit.ritRemarks,
+      createdAt: baseNewTx.createdAt || nowIso,
+      updatedAt: nowIso,
     };
 
     const scheduleStatusFromTx: ArrivalSchedule['status'] =
@@ -1235,6 +1384,7 @@ export default function App() {
     );
 
     const updatedTxs = [finalNewTx, ...transactions];
+    storageService.markLocalUpserts('transaction', [finalNewTx.id]);
     setTransactions(updatedTxs);
     storageService.saveTransactions(updatedTxs);
     const updatedSchs = syncLinkedScheduleStatusLocal(finalNewTx, scheduleStatusFromTx, schedules);
@@ -1249,7 +1399,13 @@ export default function App() {
           transaction: finalNewTx,
           schedule: linkedSchAfterGateIn,
         }),
-      `Gate In ${finalNewTx.vehiclePlate}`
+      `Gate In ${finalNewTx.vehiclePlate}`,
+      () => {
+        storageService.markCloudUpsertsAcked('transaction', [finalNewTx.id]);
+        if (linkedSchAfterGateIn) {
+          storageService.markCloudUpsertsAcked('schedule', [linkedSchAfterGateIn.id]);
+        }
+      }
     );
 
     setSelectedScheduleForGateIn(null);
@@ -1280,9 +1436,11 @@ export default function App() {
       `Teruskan ${targetTx?.vehiclePlate || txId} ke Jembatan Timbang Masuk`
     );
 
+    const nowIso = new Date().toISOString();
     const updated = transactions.map((t) =>
-      t.id === txId ? { ...t, status: 'TIMBANG_MASUK' as const } : t
+      t.id === txId ? { ...t, status: 'TIMBANG_MASUK' as const, updatedAt: nowIso } : t
     );
+    storageService.markLocalUpserts('transaction', [txId]);
     setTransactions(updated);
     storageService.saveTransactions(updated);
     const updatedSchs = syncLinkedScheduleStatusLocal(targetTx, 'TIMBANG_MASUK');
@@ -1299,7 +1457,13 @@ export default function App() {
             transaction: updatedTx,
             schedule: linkedSch,
           }),
-        `Lanjut Timbang Masuk ${updatedTx.vehiclePlate}`
+        `Lanjut Timbang Masuk ${updatedTx.vehiclePlate}`,
+        () => {
+          storageService.markCloudUpsertsAcked('transaction', [updatedTx.id]);
+          if (linkedSch) {
+            storageService.markCloudUpsertsAcked('schedule', [linkedSch.id]);
+          }
+        }
       );
     }
 
@@ -1337,6 +1501,7 @@ export default function App() {
     const initialDiscrepancy =
       targetTx.suratJalanWeight > 0 ? grossWeight - targetTx.suratJalanWeight : 0;
 
+    const nowIso = new Date().toISOString();
     const updated = transactions.map((t) =>
       t.id === txId
         ? {
@@ -1347,6 +1512,7 @@ export default function App() {
             weighInScaleId: scaleId,
             initialDiscrepancy,
             status: 'BONGKAR' as const,
+            updatedAt: nowIso,
           }
         : t
     );
@@ -1358,6 +1524,7 @@ export default function App() {
       `Timbang Masuk ${targetTx.vehiclePlate}: Gross ${grossWeight.toLocaleString('id-ID')} kg (Op: ${operatorName})`
     );
 
+    storageService.markLocalUpserts('transaction', [txId]);
     setTransactions(updated);
     storageService.saveTransactions(updated);
     const updatedSchs = syncLinkedScheduleStatusLocal(targetTx, 'BONGKAR');
@@ -1374,7 +1541,13 @@ export default function App() {
             transaction: updatedTx,
             schedule: linkedSch,
           }),
-        `Timbang Masuk ${targetTx.vehiclePlate}`
+        `Timbang Masuk ${targetTx.vehiclePlate}`,
+        () => {
+          storageService.markCloudUpsertsAcked('transaction', [updatedTx.id]);
+          if (linkedSch) {
+            storageService.markCloudUpsertsAcked('schedule', [linkedSch.id]);
+          }
+        }
       );
     }
 
@@ -1413,6 +1586,7 @@ export default function App() {
     const nextStockpile = stockpile || targetTx.assignedStockpile || targetTx.unloadingStockpile;
     const nextStatus = targetTx.status === 'QC_CHECK' ? ('BONGKAR' as const) : targetTx.status;
 
+    const nowIso = new Date().toISOString();
     const updated = transactions.map((t) => {
       if (t.id !== txId) return t;
       return {
@@ -1427,6 +1601,7 @@ export default function App() {
         qcDecisionNotes: notes,
         qcTime,
         status: nextStatus,
+        updatedAt: nowIso,
       };
     });
 
@@ -1437,6 +1612,7 @@ export default function App() {
       `Update Uji Lab QC-PA ${targetTx.vehiclePlate} (${decision}) · Kalori ${lab.calorieGAR} kcal`
     );
 
+    storageService.markLocalUpserts('transaction', [txId]);
     setTransactions(updated);
     storageService.saveTransactions(updated);
     const nextLogs = appendLocalAuditLog(auditEntry);
@@ -1445,7 +1621,8 @@ export default function App() {
     if (updatedTx) {
       void persistToSimotubaFirebase(
         () => simotubaFirestoreService.saveTransaction(updatedTx),
-        `QC-PA ${targetTx.vehiclePlate}`
+        `QC-PA ${targetTx.vehiclePlate}`,
+        () => storageService.markCloudUpsertsAcked('transaction', [updatedTx.id])
       );
     }
 
@@ -1477,6 +1654,7 @@ export default function App() {
     if (!targetTx) return;
     const unloadingEndTime = new Date().toISOString();
 
+    const nowIso = new Date().toISOString();
     const updated = transactions.map((t) =>
       t.id === txId
         ? {
@@ -1486,6 +1664,7 @@ export default function App() {
             unloadingNotes: notes,
             unloadingEndTime,
             status: 'TIMBANG_KELUAR' as const,
+            updatedAt: nowIso,
           }
         : t
     );
@@ -1497,6 +1676,7 @@ export default function App() {
       `Selesai Bongkar ${targetTx.vehiclePlate} (Checker: ${checkerName})`
     );
 
+    storageService.markLocalUpserts('transaction', [txId]);
     setTransactions(updated);
     storageService.saveTransactions(updated);
     const updatedSchs = syncLinkedScheduleStatusLocal(targetTx, 'TIMBANG_KELUAR');
@@ -1513,7 +1693,13 @@ export default function App() {
             transaction: updatedTx,
             schedule: linkedSch,
           }),
-        `Bongkar ${targetTx.vehiclePlate}`
+        `Bongkar ${targetTx.vehiclePlate}`,
+        () => {
+          storageService.markCloudUpsertsAcked('transaction', [updatedTx.id]);
+          if (linkedSch) {
+            storageService.markCloudUpsertsAcked('schedule', [linkedSch.id]);
+          }
+        }
       );
     }
 
@@ -1575,6 +1761,7 @@ export default function App() {
             claimPenaltyKg: metrics.claimPenaltyKg,
             gateOutOfficer,
             status: 'GATE_OUT' as const,
+            updatedAt: weighOutTime,
           }
         : t
     );
@@ -1586,6 +1773,7 @@ export default function App() {
       `Timbang Keluar ${targetTx.vehiclePlate}: Tare ${tareWeight.toLocaleString('id-ID')} kg · Netto ${metrics.nettoTons.toFixed(2)} Ton (${metrics.shrinkagePercentage.toFixed(2)}%)`
     );
 
+    storageService.markLocalUpserts('transaction', [txId]);
     setTransactions(updated);
     storageService.saveTransactions(updated);
     const updatedSchs = syncLinkedScheduleStatusLocal(targetTx, 'GATE_OUT');
@@ -1602,7 +1790,13 @@ export default function App() {
             transaction: updatedTx,
             schedule: linkedSch,
           }),
-        `Timbang Keluar ${targetTx.vehiclePlate}`
+        `Timbang Keluar ${targetTx.vehiclePlate}`,
+        () => {
+          storageService.markCloudUpsertsAcked('transaction', [updatedTx.id]);
+          if (linkedSch) {
+            storageService.markCloudUpsertsAcked('schedule', [linkedSch.id]);
+          }
+        }
       );
     }
 
@@ -1635,6 +1829,7 @@ export default function App() {
       gateOutTime,
       gateOutOfficer: officerName,
       status: 'COMPLETED' as const,
+      updatedAt: gateOutTime,
     };
 
     const updated = transactions.map((t) => (t.id === txId ? finalTx : t));
@@ -1644,7 +1839,9 @@ export default function App() {
     const nextReceivedTonnageKg = Math.round((targetPo?.receivedTonnage || 0) + nettoKgAdded);
 
     const updatedPos = purchaseOrders.map((po) =>
-      po.id === targetPoId ? { ...po, receivedTonnage: nextReceivedTonnageKg } : po
+      po.id === targetPoId
+        ? { ...po, receivedTonnage: nextReceivedTonnageKg, updatedAt: gateOutTime }
+        : po
     );
 
     const auditEntry = buildAuditEntry(
@@ -1654,6 +1851,10 @@ export default function App() {
       `Gate Out Selesai ${finalTx.vehiclePlate} · Netto ${(nettoKgAdded / 1000).toFixed(2)} Ton (Petugas: ${officerName})`
     );
 
+    storageService.markLocalUpserts('transaction', [txId]);
+    if (targetPo) {
+      storageService.markLocalUpserts('po', [targetPoId]);
+    }
     setTransactions(updated);
     setPurchaseOrders(updatedPos);
     storageService.saveTransactions(updated);
@@ -1672,7 +1873,12 @@ export default function App() {
           schedule: linkedSch,
           po: updatedPo,
         }),
-      `Gate Out ${finalTx.vehiclePlate}`
+      `Gate Out ${finalTx.vehiclePlate}`,
+      () => {
+        storageService.markCloudUpsertsAcked('transaction', [finalTx.id]);
+        if (linkedSch) storageService.markCloudUpsertsAcked('schedule', [linkedSch.id]);
+        if (updatedPo) storageService.markCloudUpsertsAcked('po', [updatedPo.id]);
+      }
     );
 
     const dur = calculateDuration(finalTx.gateInTime, finalTx.gateOutTime);
@@ -1702,22 +1908,26 @@ export default function App() {
     const existingTx = transactions.find((t) => t.id === updatedTx.id);
     if (!existingTx) return;
 
+    const nowIso = new Date().toISOString();
+    const stampedTx: CoalTransaction = { ...updatedTx, updatedAt: nowIso };
     const updatedTransactions = transactions.map((t) =>
-      t.id === updatedTx.id ? updatedTx : t
+      t.id === stampedTx.id ? stampedTx : t
     );
 
     let updatedPos = purchaseOrders;
     let poDeltaUpdate: { poId: string; receivedTonnage: number } | null = null;
-    if (existingTx.status === 'COMPLETED' && updatedTx.status === 'COMPLETED') {
+    if (existingTx.status === 'COMPLETED' && stampedTx.status === 'COMPLETED') {
       const oldNetto = existingTx.nettoWeight || (existingTx.nettoTons || 0) * 1000;
-      const newNetto = updatedTx.nettoWeight || (updatedTx.nettoTons || 0) * 1000;
+      const newNetto = stampedTx.nettoWeight || (stampedTx.nettoTons || 0) * 1000;
       const deltaKg = newNetto - oldNetto;
       if (deltaKg !== 0) {
-        const targetPo = purchaseOrders.find((po) => po.id === updatedTx.poId);
+        const targetPo = purchaseOrders.find((po) => po.id === stampedTx.poId);
         const nextReceived = Math.max(0, Math.round((targetPo?.receivedTonnage || 0) + deltaKg));
-        poDeltaUpdate = { poId: updatedTx.poId, receivedTonnage: nextReceived };
+        poDeltaUpdate = { poId: stampedTx.poId, receivedTonnage: nextReceived };
         updatedPos = purchaseOrders.map((po) =>
-          po.id === updatedTx.poId ? { ...po, receivedTonnage: nextReceived } : po
+          po.id === stampedTx.poId
+            ? { ...po, receivedTonnage: nextReceived, updatedAt: nowIso }
+            : po
         );
       }
     }
@@ -1725,12 +1935,14 @@ export default function App() {
     const auditEntry = buildAuditEntry(
       'ADMIN_EDIT_TRANSACTION',
       'TRANSACTION',
-      updatedTx.id,
-      `Revisi riwayat ${updatedTx.vehiclePlate} (${updatedTx.ticketNumber})`,
-      `Netto: ${updatedTx.nettoTons.toFixed(2)} Ton`
+      stampedTx.id,
+      `Revisi riwayat ${stampedTx.vehiclePlate} (${stampedTx.ticketNumber})`,
+      `Netto: ${stampedTx.nettoTons.toFixed(2)} Ton`
     );
 
+    storageService.markLocalUpserts('transaction', [stampedTx.id]);
     if (poDeltaUpdate) {
+      storageService.markLocalUpserts('po', [poDeltaUpdate.poId]);
       setPurchaseOrders(updatedPos);
       storageService.savePurchaseOrders(updatedPos);
     }
@@ -1744,10 +1956,16 @@ export default function App() {
     void persistToSimotubaFirebase(
       () =>
         simotubaFirestoreService.saveTransactionBundle({
-          transaction: updatedTx,
+          transaction: stampedTx,
           po: updatedPoIfChanged,
         }),
-      `Revisi ${updatedTx.vehiclePlate}`
+      `Revisi ${stampedTx.vehiclePlate}`,
+      () => {
+        storageService.markCloudUpsertsAcked('transaction', [stampedTx.id]);
+        if (updatedPoIfChanged) {
+          storageService.markCloudUpsertsAcked('po', [updatedPoIfChanged.id]);
+        }
+      }
     );
 
     showToast(`Data operasional ${updatedTx.vehiclePlate} (${updatedTx.ticketNumber}) berhasil diperbarui.`);
@@ -1784,6 +2002,7 @@ export default function App() {
     );
 
     storageService.clearAllData();
+    storageService.markPendingClearAll(true);
     setPurchaseOrders([]);
     setSchedules([]);
     setTransactions([]);
@@ -1791,7 +2010,8 @@ export default function App() {
 
     void persistToSimotubaFirebase(
       () => simotubaFirestoreService.clearAllCollections(),
-      'Reset Data'
+      'Reset Data',
+      () => storageService.clearSyncState()
     );
 
     setSelectedTxId(undefined);
@@ -1851,10 +2071,30 @@ export default function App() {
     if (!requireRole('ADMIN')) return;
     const success = storageService.importBackupJSON(jsonStr);
     if (success) {
-      const nextPos = storageService.getPurchaseOrders();
-      const nextSchs = storageService.getSchedules();
-      const nextTxs = storageService.getTransactions();
+      const nowIso = new Date().toISOString();
+      const nextPos = storageService.getPurchaseOrders().map((p) => ({
+        ...p,
+        createdAt: p.createdAt || nowIso,
+        updatedAt: nowIso,
+      }));
+      const nextSchs = storageService.getSchedules().map((s) => ({
+        ...s,
+        createdAt: s.createdAt || nowIso,
+        updatedAt: nowIso,
+      }));
+      const nextTxs = storageService.getTransactions().map((t) => ({
+        ...t,
+        createdAt: t.createdAt || nowIso,
+        updatedAt: nowIso,
+      }));
       const nextCfg = storageService.getSheetConfig();
+
+      storageService.savePurchaseOrders(nextPos);
+      storageService.saveSchedules(nextSchs);
+      storageService.saveTransactions(nextTxs);
+      storageService.markLocalUpserts('po', nextPos.map((p) => p.id));
+      storageService.markLocalUpserts('schedule', nextSchs.map((s) => s.id));
+      storageService.markLocalUpserts('transaction', nextTxs.map((t) => t.id));
 
       setPurchaseOrders(nextPos);
       setSchedules(nextSchs);
@@ -1871,7 +2111,12 @@ export default function App() {
 
       void persistToSimotubaFirebase(
         () => simotubaFirestoreService.replaceAllCollections(nextPos, nextSchs, nextTxs),
-        'Restore Backup JSON'
+        'Restore Backup JSON',
+        () => {
+          storageService.markCloudUpsertsAcked('po', nextPos.map((p) => p.id));
+          storageService.markCloudUpsertsAcked('schedule', nextSchs.map((s) => s.id));
+          storageService.markCloudUpsertsAcked('transaction', nextTxs.map((t) => t.id));
+        }
       );
 
       showToast('Cadangan data berhasil dipulihkan!');

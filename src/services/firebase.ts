@@ -360,7 +360,7 @@ export const simotubaFirestoreService = {
         data: cleanForFirestore({
           ...sch,
           createdAt: sch.createdAt || now,
-          updatedAt: now,
+          updatedAt: sch.updatedAt || now,
         }) as unknown as Record<string, unknown>,
       }))
     );
@@ -371,6 +371,81 @@ export const simotubaFirestoreService = {
     await deleteDoc(doc(simotubaDb, COLLECTIONS.SCHEDULES, sanitizeDocId(schId)));
   },
 
+  async saveTransactions(txs: CoalTransaction[]): Promise<void> {
+    const now = new Date().toISOString();
+    await commitBatchedOps(
+      txs.map((tx) => ({
+        type: 'set',
+        col: COLLECTIONS.TRANSACTIONS,
+        id: tx.id,
+        data: cleanForFirestore({
+          ...tx,
+          createdAt: tx.createdAt || now,
+          updatedAt: tx.updatedAt || now,
+        }) as unknown as Record<string, unknown>,
+      }))
+    );
+  },
+
+  async flushPendingOperations(params: {
+    upsertPos: PurchaseOrder[];
+    upsertSchedules: ArrivalSchedule[];
+    upsertTransactions: CoalTransaction[];
+    deletePoIds: string[];
+    deleteScheduleIds: string[];
+    deleteTransactionIds: string[];
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    const ops: Parameters<typeof commitBatchedOps>[0] = [
+      ...params.upsertPos.map((po) => ({
+        type: 'set' as const,
+        col: COLLECTIONS.PO,
+        id: po.id,
+        data: cleanForFirestore({
+          ...po,
+          createdAt: po.createdAt || now,
+          updatedAt: po.updatedAt || now,
+        }) as unknown as Record<string, unknown>,
+      })),
+      ...params.upsertSchedules.map((sch) => ({
+        type: 'set' as const,
+        col: COLLECTIONS.SCHEDULES,
+        id: sch.id,
+        data: cleanForFirestore({
+          ...sch,
+          createdAt: sch.createdAt || now,
+          updatedAt: sch.updatedAt || now,
+        }) as unknown as Record<string, unknown>,
+      })),
+      ...params.upsertTransactions.map((tx) => ({
+        type: 'set' as const,
+        col: COLLECTIONS.TRANSACTIONS,
+        id: tx.id,
+        data: cleanForFirestore({
+          ...tx,
+          createdAt: tx.createdAt || now,
+          updatedAt: tx.updatedAt || now,
+        }) as unknown as Record<string, unknown>,
+      })),
+      ...params.deletePoIds.map((id) => ({
+        type: 'delete' as const,
+        col: COLLECTIONS.PO,
+        id,
+      })),
+      ...params.deleteScheduleIds.map((id) => ({
+        type: 'delete' as const,
+        col: COLLECTIONS.SCHEDULES,
+        id,
+      })),
+      ...params.deleteTransactionIds.map((id) => ({
+        type: 'delete' as const,
+        col: COLLECTIONS.TRANSACTIONS,
+        id,
+      })),
+    ];
+    await commitBatchedOps(ops);
+  },
+
   async saveTransaction(tx: CoalTransaction): Promise<void> {
     await ensureSimotubaAuth();
     const now = new Date().toISOString();
@@ -379,7 +454,7 @@ export const simotubaFirestoreService = {
       cleanForFirestore({
         ...tx,
         createdAt: tx.createdAt || now,
-        updatedAt: now,
+        updatedAt: tx.updatedAt || now,
       }) as unknown as Record<string, unknown>,
       { merge: true }
     );
