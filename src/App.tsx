@@ -1301,6 +1301,119 @@ export default function App() {
     });
   };
 
+  // Transaction / Riwayat Bongkar Delete Handler
+  const handleDeleteTransaction = async (txId: string) => {
+    if (!requireRole('ADMIN')) return;
+
+    const targetTx = transactions.find((t) => t.id === txId);
+    if (!targetTx) return;
+
+    const nowIso = new Date().toISOString();
+    const updatedTxs = transactions.filter((t) => t.id !== txId);
+
+    // Roll back PO receivedTonnage if this transaction was COMPLETED
+    const nettoKgToRollback =
+      targetTx.status === 'COMPLETED'
+        ? targetTx.nettoWeight || Math.round((targetTx.nettoTons || 0) * 1000)
+        : 0;
+    const updatedPos =
+      nettoKgToRollback > 0 && targetTx.poId
+        ? purchaseOrders.map((po) => {
+            if (po.id === targetTx.poId) {
+              const nextReceived = Math.max(
+                0,
+                Math.round((po.receivedTonnage || 0) - nettoKgToRollback)
+              );
+              return { ...po, receivedTonnage: nextReceived, updatedAt: nowIso };
+            }
+            return po;
+          })
+        : purchaseOrders;
+    const affectedPo: PurchaseOrder | null =
+      nettoKgToRollback > 0 && targetTx.poId
+        ? updatedPos.find((po) => po.id === targetTx.poId) || null
+        : null;
+
+    // Revert linked schedule status back to SCHEDULED if no other transaction references it
+    const shouldRevertSchedule =
+      Boolean(targetTx.scheduleId) &&
+      !updatedTxs.some((t) => t.scheduleId === targetTx.scheduleId);
+    const updatedSchs = shouldRevertSchedule
+      ? schedules.map((s) =>
+          s.id === targetTx.scheduleId && s.status !== 'CANCELLED'
+            ? { ...s, status: 'SCHEDULED' as const, updatedAt: nowIso }
+            : s
+        )
+      : schedules;
+    const affectedSchedule: ArrivalSchedule | null =
+      shouldRevertSchedule && targetTx.scheduleId
+        ? updatedSchs.find((s) => s.id === targetTx.scheduleId && s.status === 'SCHEDULED') || null
+        : null;
+
+    const auditEntry = buildAuditEntry(
+      'DELETE_TRANSACTION',
+      'TRANSACTION',
+      txId,
+      `Hapus riwayat bongkar ${targetTx.vehiclePlate} (PO: ${targetTx.poNumber}, Tiket: ${targetTx.ticketNumber})`
+    );
+
+    storageService.markLocalDeletes('transaction', [txId]);
+    if (affectedPo) {
+      storageService.markLocalUpserts('po', [affectedPo.id]);
+    }
+    if (affectedSchedule) {
+      storageService.markLocalUpserts('schedule', [affectedSchedule.id]);
+    }
+
+    setTransactions(updatedTxs);
+    storageService.saveTransactions(updatedTxs);
+    if (affectedPo) {
+      setPurchaseOrders(updatedPos);
+      storageService.savePurchaseOrders(updatedPos);
+    }
+    if (affectedSchedule) {
+      setSchedules(updatedSchs);
+      storageService.saveSchedules(updatedSchs);
+    }
+    if (printingTx?.id === txId) {
+      setPrintingTx(null);
+    }
+    const nextLogs = appendLocalAuditLog(auditEntry);
+
+    void persistToSimotubaFirebase(
+      () =>
+        simotubaFirestoreService.deleteTransactionBundle({
+          txId,
+          schedule: affectedSchedule,
+          po: affectedPo,
+        }),
+      `Hapus Riwayat ${targetTx.vehiclePlate}`,
+      () => {
+        storageService.markCloudDeletesAcked('transaction', [txId]);
+        if (affectedPo) storageService.markCloudUpsertsAcked('po', [affectedPo.id]);
+        if (affectedSchedule) storageService.markCloudUpsertsAcked('schedule', [affectedSchedule.id]);
+      }
+    );
+
+    showToast(`Data riwayat bongkar ${targetTx.vehiclePlate} berhasil dihapus!`);
+
+    const affectedTabs: string[] = [SHEET_TABS.TRANSACTIONS, SHEET_TABS.AUDIT];
+    if (affectedPo) affectedTabs.push(SHEET_TABS.PO);
+    if (affectedSchedule) affectedTabs.push(SHEET_TABS.SCHEDULES);
+
+    promptSheetMutation({
+      title: `Hapus Riwayat Bongkar ${targetTx.vehiclePlate} dari Google Sheets?`,
+      description: `Transaksi ${targetTx.vehiclePlate} (Tiket ${targetTx.ticketNumber}) akan dihapus dari Google Spreadsheet${affectedPo ? ' dan realisasi kuota PO akan disesuaikan' : ''}.`,
+      affectedTabs,
+      nextPos: updatedPos,
+      nextSchs: updatedSchs,
+      nextTxs: updatedTxs,
+      nextLogs,
+      isDestructive: true,
+      confirmLabel: 'Ya, Hapus dari Google Sheet',
+    });
+  };
+
   // Check-In to Security from Schedule
   const handleScheduleCheckInDirect = (schedule: ArrivalSchedule) => {
     setSelectedScheduleForGateIn(schedule);
@@ -2279,6 +2392,7 @@ export default function App() {
               onNavigate={handleNavigateWithFilter}
               onOpenTicket={(tx) => setPrintingTx(tx)}
               onCheckInSchedule={handleScheduleCheckInDirect}
+              onDeleteTransaction={handleDeleteTransaction}
             />
           )}
 
@@ -2320,6 +2434,8 @@ export default function App() {
               preselectedSchedule={selectedScheduleForGateIn}
               onCompleteGateOut={handleCompleteGateOut}
               onOpenTicket={(tx) => setPrintingTx(tx)}
+              onUpdateSchedule={handleUpdateSchedule}
+              onDeleteSchedule={handleDeleteSchedule}
               initialSubTab={securitySubTab}
             />
           )}

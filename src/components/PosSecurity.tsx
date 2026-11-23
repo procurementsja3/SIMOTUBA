@@ -14,7 +14,9 @@ import {
   Printer, 
   Clock, 
   Calendar,
-  X
+  X,
+  Pencil,
+  Trash2
 } from 'lucide-react';
 import { CoalTransaction, PurchaseOrder, ArrivalSchedule } from '../types/coal';
 import { calculateDuration } from '../utils/timeUtils';
@@ -30,6 +32,8 @@ interface PosSecurityProps {
   preselectedSchedule?: ArrivalSchedule | null;
   onCompleteGateOut?: (txId: string, officerName: string, gateOutTimeIso?: string) => void;
   onOpenTicket?: (tx: CoalTransaction) => void;
+  onUpdateSchedule?: (updatedSch: ArrivalSchedule) => void;
+  onDeleteSchedule?: (schId: string) => void;
   initialSubTab?: 'GATE_IN' | 'GATE_OUT';
 }
 
@@ -78,18 +82,36 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
   preselectedSchedule,
   onCompleteGateOut,
   onOpenTicket,
+  onUpdateSchedule,
+  onDeleteSchedule,
   initialSubTab = 'GATE_IN',
 }) => {
   const [subTab, setSubTab] = useState<'GATE_IN' | 'GATE_OUT'>(initialSubTab);
   const [searchTerm, setSearchTerm] = useState('');
   const [isCheckInOpen, setIsCheckInOpen] = useState(false);
   const [checkInError, setCheckInError] = useState<string | null>(null);
-  const [historyScope, setHistoryScope] = useState<'TODAY' | 'ALL'>('TODAY');
+  const [historyScope, setHistoryScope] = useState<'TODAY' | 'ALL'>('ALL');
   const [timelineModalTx, setTimelineModalTx] = useState<CoalTransaction | null>(null);
   const [gateOutOperators, setGateOutOperators] = useState<Record<string, string>>({});
   const [gateOutOperatorErrors, setGateOutOperatorErrors] = useState<Record<string, boolean>>({});
   const [gateOutDates, setGateOutDates] = useState<Record<string, string>>({});
   const [gateOutTimes, setGateOutTimes] = useState<Record<string, string>>({});
+  const [editingSchedule, setEditingSchedule] = useState<ArrivalSchedule | null>(null);
+  const [editScheduleForm, setEditScheduleForm] = useState<{
+    etaDate: string;
+    estimatedTonnage: string;
+    estimatedTruckCount: string;
+    status: ArrivalSchedule['status'];
+    remarks: string;
+  }>({
+    etaDate: getLocalDateStr(),
+    estimatedTonnage: '30000',
+    estimatedTruckCount: '1',
+    status: 'SCHEDULED',
+    remarks: '',
+  });
+  const [editScheduleError, setEditScheduleError] = useState<string | null>(null);
+  const [deletingSchedule, setDeletingSchedule] = useState<ArrivalSchedule | null>(null);
 
   // Form State
   const [formData, setFormData] = useState<{
@@ -224,6 +246,50 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
     }));
     setCheckInError(null);
     setIsCheckInOpen(true);
+  };
+
+  const handleOpenEditSchedule = (sch: ArrivalSchedule) => {
+    const etaDate = sch.etaDateTime
+      ? sch.etaDateTime.includes('T')
+        ? sch.etaDateTime.split('T')[0]
+        : sch.etaDateTime.slice(0, 10)
+      : getLocalDateStr();
+    setEditScheduleForm({
+      etaDate,
+      estimatedTonnage: String(sch.estimatedTonnage || 0),
+      estimatedTruckCount: String(sch.estimatedTruckCount || 1),
+      status: sch.status,
+      remarks: sch.remarks || '',
+    });
+    setEditScheduleError(null);
+    setEditingSchedule(sch);
+  };
+
+  const handleSaveEditSchedule = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSchedule || !onUpdateSchedule) return;
+
+    const tonnage = Number(editScheduleForm.estimatedTonnage);
+    const truckCount = Math.max(1, parseInt(editScheduleForm.estimatedTruckCount, 10) || 1);
+    if (!editScheduleForm.etaDate) {
+      setEditScheduleError('Tanggal Estimasi Tiba (ETA) wajib diisi.');
+      return;
+    }
+    if (!Number.isFinite(tonnage) || tonnage <= 0) {
+      setEditScheduleError('Estimasi berat muatan (Kg) harus lebih dari 0.');
+      return;
+    }
+
+    onUpdateSchedule({
+      ...editingSchedule,
+      etaDateTime: editScheduleForm.etaDate,
+      estimatedTonnage: tonnage,
+      estimatedTruckCount: truckCount,
+      status: editScheduleForm.status,
+      remarks: editScheduleForm.remarks.trim().toUpperCase(),
+    });
+    setEditingSchedule(null);
+    setEditScheduleError(null);
   };
 
   const handleCheckInSubmit = (e: React.FormEvent) => {
@@ -467,14 +533,36 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleOpenCheckInForSchedule(sch)}
-                        className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Check-In Armada Ini (Isi Nopol)</span>
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenCheckInForSchedule(sch)}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5 shrink-0" />
+                          <span>Check-In Armada Ini (Isi Nopol)</span>
+                        </button>
+                        {onUpdateSchedule && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditSchedule(sch)}
+                            className="p-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 rounded-lg transition-colors shadow-2xs cursor-pointer shrink-0"
+                            title="Edit Jadwal Registrasi"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {onDeleteSchedule && (
+                          <button
+                            type="button"
+                            onClick={() => setDeletingSchedule(sch)}
+                            className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg transition-colors shadow-2xs cursor-pointer shrink-0"
+                            title="Hapus Jadwal Registrasi"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -1320,6 +1408,263 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
           transaction={timelineModalTx}
           onClose={() => setTimelineModalTx(null)}
         />
+      )}
+
+      {/* Modal Edit Jadwal Registrasi */}
+      {editingSchedule && onUpdateSchedule && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto"
+          onClick={() => setEditingSchedule(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-reg-schedule-title"
+            className="w-full max-w-2xl rounded-2xl bg-white border border-slate-300 shadow-2xl overflow-hidden text-slate-900 my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-sky-50/70">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-lg bg-sky-100 border border-sky-200 flex items-center justify-center text-sky-700 shrink-0">
+                  <Pencil className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 id="edit-reg-schedule-title" className="text-sm sm:text-base font-bold text-slate-900">
+                    Edit Jadwal Registrasi
+                  </h3>
+                  <p className="text-xs text-slate-600 font-mono-num">
+                    ID: {editingSchedule.id} · PO: {editingSchedule.poNumber} ({editingSchedule.supplierName})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingSchedule(null)}
+                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200/70 transition-colors cursor-pointer"
+                title="Tutup"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditSchedule} className="p-5 space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                    Tanggal Estimasi Tiba (ETA) <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={editScheduleForm.etaDate}
+                    onChange={(e) => {
+                      setEditScheduleForm((prev) => ({ ...prev, etaDate: e.target.value }));
+                      if (editScheduleError) setEditScheduleError(null);
+                    }}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-mono-num font-semibold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                    style={{ colorScheme: 'light' }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                    Status Kedatangan
+                  </label>
+                  <select
+                    value={editScheduleForm.status}
+                    onChange={(e) =>
+                      setEditScheduleForm((prev) => ({
+                        ...prev,
+                        status: e.target.value as ArrivalSchedule['status'],
+                      }))
+                    }
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-semibold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                  >
+                    <option value="SCHEDULED">Terjadwal (Scheduled)</option>
+                    <option value="ON_WAY">Sedang di Jalan (On Way)</option>
+                    <option value="OVERDUE">Lewat Jadwal (Overdue)</option>
+                    <option value="CANCELLED">Dibatalkan (Cancelled)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                    Estimasi Berat Muatan (Kg) <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    required
+                    value={editScheduleForm.estimatedTonnage}
+                    onChange={(e) => {
+                      setEditScheduleForm((prev) => ({ ...prev, estimatedTonnage: e.target.value }));
+                      if (editScheduleError) setEditScheduleError(null);
+                    }}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-mono-num font-semibold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  />
+                  <span className="text-[11px] text-slate-500 mt-1 block font-mono-num">
+                    Setara {((Number(editScheduleForm.estimatedTonnage) || 0) / 1000).toFixed(2)} Ton
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                    Estimasi Rit / Armada
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={editScheduleForm.estimatedTruckCount}
+                    onChange={(e) =>
+                      setEditScheduleForm((prev) => ({ ...prev, estimatedTruckCount: e.target.value }))
+                    }
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-mono-num font-semibold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                  Keterangan / Catatan RIT
+                </label>
+                <input
+                  type="text"
+                  value={editScheduleForm.remarks}
+                  onChange={(e) =>
+                    setEditScheduleForm((prev) => ({ ...prev, remarks: e.target.value }))
+                  }
+                  placeholder="Contoh: PENGIRIMAN BATUBARA RIT KE-1"
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-medium focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                />
+              </div>
+
+              {editScheduleError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-300 text-rose-800 text-xs font-medium flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{editScheduleError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditingSchedule(null)}
+                  className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 transition-colors shadow-xs cursor-pointer"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Simpan Perubahan</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Hapus Jadwal Registrasi */}
+      {deletingSchedule && onDeleteSchedule && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+          onClick={() => setDeletingSchedule(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-reg-schedule-title"
+            className="w-full max-w-md rounded-2xl bg-white border border-slate-300 shadow-2xl overflow-hidden text-slate-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-rose-50/80">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-lg bg-rose-100 border border-rose-200 flex items-center justify-center text-rose-700 shrink-0">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 id="delete-reg-schedule-title" className="text-sm font-bold text-slate-900">
+                    Hapus Jadwal Registrasi?
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    Data jadwal ini akan dihapus dari antrean registrasi
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeletingSchedule(null)}
+                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200/70 transition-colors cursor-pointer"
+                title="Tutup"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3 text-xs">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">ID Jadwal:</span>
+                  <strong className="font-mono font-bold text-slate-900">{deletingSchedule.id}</strong>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Nomor PO:</span>
+                  <strong className="font-mono font-bold text-amber-800">{deletingSchedule.poNumber}</strong>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Supplier:</span>
+                  <strong className="text-slate-900 text-right">{deletingSchedule.supplierName}</strong>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">ETA / Estimasi:</span>
+                  <strong className="font-mono font-bold text-emerald-700">
+                    {(deletingSchedule.etaDateTime.includes('T')
+                      ? deletingSchedule.etaDateTime.split('T')[0]
+                      : deletingSchedule.etaDateTime)}{' '}
+                    · {Number(deletingSchedule.estimatedTonnage).toLocaleString('id-ID')} Kg
+                  </strong>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500 shrink-0">Keterangan:</span>
+                  <strong className="text-slate-800 text-right">
+                    {getScheduleRitLabel(deletingSchedule, schedules)}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-rose-200 bg-rose-50/80 p-3 text-rose-900 leading-relaxed">
+                Jadwal ini akan dihapus permanen dari daftar <strong>Input Registrasi</strong> dan <strong>Jadwal Kedatangan</strong>. Kuota estimasi pada PO akan otomatis tersedia kembali.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-slate-200 bg-slate-50">
+              <button
+                type="button"
+                onClick={() => setDeletingSchedule(null)}
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetId = deletingSchedule.id;
+                  setDeletingSchedule(null);
+                  if (formData.scheduleId === targetId) {
+                    setFormData((prev) => ({ ...prev, scheduleId: '' }));
+                  }
+                  onDeleteSchedule(targetId);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition-colors shadow-xs cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Hapus Jadwal</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

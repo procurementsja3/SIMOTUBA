@@ -446,6 +446,46 @@ export const simotubaFirestoreService = {
     await commitBatchedOps(ops);
   },
 
+  async deleteTransactionBundle(params: {
+    txId: string;
+    schedule?: ArrivalSchedule | null;
+    po?: PurchaseOrder | null;
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    const ops: Parameters<typeof commitBatchedOps>[0] = [
+      {
+        type: 'delete',
+        col: COLLECTIONS.TRANSACTIONS,
+        id: params.txId,
+      },
+    ];
+    if (params.schedule) {
+      ops.push({
+        type: 'set',
+        col: COLLECTIONS.SCHEDULES,
+        id: params.schedule.id,
+        data: cleanForFirestore({
+          ...params.schedule,
+          createdAt: params.schedule.createdAt || now,
+          updatedAt: params.schedule.updatedAt || now,
+        }) as unknown as Record<string, unknown>,
+      });
+    }
+    if (params.po) {
+      ops.push({
+        type: 'set',
+        col: COLLECTIONS.PO,
+        id: params.po.id,
+        data: cleanForFirestore({
+          ...params.po,
+          createdAt: params.po.createdAt || now,
+          updatedAt: params.po.updatedAt || now,
+        }) as unknown as Record<string, unknown>,
+      });
+    }
+    await commitBatchedOps(ops);
+  },
+
   async saveTransaction(tx: CoalTransaction): Promise<void> {
     await ensureSimotubaAuth();
     const now = new Date().toISOString();

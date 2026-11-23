@@ -142,6 +142,28 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
     });
   };
 
+  const resolvedSheetUrl = (() => {
+    if (config.spreadsheetUrl && config.spreadsheetUrl.trim()) {
+      return config.spreadsheetUrl.trim();
+    }
+    if (config.spreadsheetId && config.spreadsheetId.trim()) {
+      return `https://docs.google.com/spreadsheets/d/${config.spreadsheetId.trim()}/edit`;
+    }
+    const raw = existingSheetInput.trim();
+    if (/^https?:\/\/docs\.google\.com\/spreadsheets\//i.test(raw)) {
+      return raw;
+    }
+    const match = raw.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if (match?.[1]) {
+      return `https://docs.google.com/spreadsheets/d/${match[1]}/edit`;
+    }
+    if (/^[a-zA-Z0-9-_]{20,}$/.test(raw)) {
+      return `https://docs.google.com/spreadsheets/d/${raw}/edit`;
+    }
+    return 'https://docs.google.com/spreadsheets/';
+  })();
+  const hasLinkedSpreadsheet = Boolean(config.spreadsheetUrl?.trim() || config.spreadsheetId?.trim());
+
   return (
     <div className="space-y-6">
       {/* Top Banner */}
@@ -162,18 +184,7 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {config.spreadsheetUrl && (
-              <a
-                href={config.spreadsheetUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-semibold rounded-lg transition-colors"
-              >
-                <ExternalLink className="w-3.5 h-3.5 text-emerald-700" />
-                <span>Buka Google Sheet</span>
-              </a>
-            )}
+          <div className="flex flex-wrap items-center gap-2.5">
             {config.spreadsheetId && hasSheetsToken ? (
               <button
                 type="button"
@@ -195,6 +206,22 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
                 label="Sign in with Google"
               />
             ) : null}
+
+            <a
+              href={resolvedSheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold rounded-lg transition-colors shadow-2xs whitespace-nowrap"
+              title={
+                hasLinkedSpreadsheet
+                  ? `Buka data Google Sheet: ${config.spreadsheetTitle || config.spreadsheetId}`
+                  : 'Buka Google Sheets (G-Sheet)'
+              }
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-700 shrink-0" />
+              <span>{hasLinkedSpreadsheet ? 'Buka Data G-Sheet' : 'Buka G-Sheet'}</span>
+              <ExternalLink className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+            </a>
           </div>
         </div>
       </div>

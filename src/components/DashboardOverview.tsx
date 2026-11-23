@@ -22,10 +22,13 @@ import {
   TimerReset,
   Filter,
   Check,
-  ChevronRight
+  ChevronRight,
+  Trash2,
+  X
 } from 'lucide-react';
 import { PurchaseOrder, ArrivalSchedule, CoalTransaction, ActiveTab } from '../types/coal';
 import { calculateDuration, getOperationalTimeline } from '../utils/timeUtils';
+import { resolveTransactionRitInfo } from '../utils/ritUtils';
 import { TransactionTimelineModal } from './TransactionTimelineModal';
 import { CoalReceivingHistoricalSection } from './CoalReceivingHistoricalSection';
 
@@ -36,6 +39,7 @@ interface DashboardOverviewProps {
   onNavigate: (tab: ActiveTab, filterId?: string) => void;
   onOpenTicket?: (tx: CoalTransaction) => void;
   onCheckInSchedule?: (schedule: ArrivalSchedule) => void;
+  onDeleteTransaction?: (txId: string) => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -45,16 +49,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onNavigate,
   onOpenTicket,
   onCheckInSchedule,
+  onDeleteTransaction,
 }) => {
   // Modal & Expandable State
   const [selectedTimelineTx, setSelectedTimelineTx] = useState<CoalTransaction | null>(null);
+  const [deletingTx, setDeletingTx] = useState<CoalTransaction | null>(null);
   const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
   const [isAlertExpanded, setIsAlertExpanded] = useState<boolean>(true);
   const [historyFilter, setHistoryFilter] = useState<'ALL' | 'COMPLETED' | 'IN_PROGRESS'>('ALL');
   const [historySearch, setHistorySearch] = useState('');
 
-  const [kpiScope, setKpiScope] = useState<'TODAY' | 'ALL'>('TODAY');
-  const [hasUserSelectedScope, setHasUserSelectedScope] = useState<boolean>(false);
+  const [kpiScope, setKpiScope] = useState<'TODAY' | 'ALL'>('ALL');
 
   const isSameLocalDate = (isoString?: string, refDate = new Date()) => {
     if (!isoString) return false;
@@ -77,16 +82,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     const today = new Date();
     return allCompleted.filter((t) => isSameLocalDate(t.gateOutTime || t.gateInTime, today)).length;
   }, [allCompleted]);
-
-  React.useEffect(() => {
-    if (!hasUserSelectedScope) {
-      if (todayCompletedCount === 0 && allCompleted.length > 0) {
-        setKpiScope('ALL');
-      } else if (todayCompletedCount > 0) {
-        setKpiScope('TODAY');
-      }
-    }
-  }, [todayCompletedCount, allCompleted.length, hasUserSelectedScope]);
 
   const completedToday = useMemo(() => {
     if (kpiScope === 'ALL') return allCompleted;
@@ -284,15 +279,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
       if (!historySearch.trim()) return true;
       const q = historySearch.toLowerCase();
+      const ritInfo = resolveTransactionRitInfo(t, transactions, schedules);
       return (
         t.vehiclePlate.toLowerCase().includes(q) ||
         t.driverName.toLowerCase().includes(q) ||
         t.poNumber.toLowerCase().includes(q) ||
         t.supplierName.toLowerCase().includes(q) ||
+        ritInfo.ritCategory.toLowerCase().includes(q) ||
         (t.ticketNumber && t.ticketNumber.toLowerCase().includes(q))
       );
     });
-  }, [transactions, historyFilter, historySearch]);
+  }, [transactions, schedules, historyFilter, historySearch]);
 
   const formatMinutesBadge = (minutes: number) => {
     if (minutes <= 0) return '-';
@@ -322,24 +319,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-300 text-xs">
           <button
             type="button"
-            onClick={() => {
-              setHasUserSelectedScope(true);
-              setKpiScope('TODAY');
-            }}
-            className={`px-3 py-1 rounded-md font-bold transition-colors cursor-pointer ${
-              kpiScope === 'TODAY'
-                ? 'bg-amber-500 text-slate-950 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Hari Ini ({todayCompletedCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setHasUserSelectedScope(true);
-              setKpiScope('ALL');
-            }}
+            onClick={() => setKpiScope('ALL')}
             className={`px-3 py-1 rounded-md font-bold transition-colors cursor-pointer ${
               kpiScope === 'ALL'
                 ? 'bg-amber-500 text-slate-950 shadow-xs'
@@ -347,6 +327,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             }`}
           >
             Semua Data ({allCompleted.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setKpiScope('TODAY')}
+            className={`px-3 py-1 rounded-md font-bold transition-colors cursor-pointer ${
+              kpiScope === 'TODAY'
+                ? 'bg-amber-500 text-slate-950 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Hari Ini ({todayCompletedCount})
           </button>
         </div>
       </div>
@@ -721,12 +712,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <History className="w-5 h-5 text-amber-600" />
-              <h3 className="text-base font-bold text-slate-900 tracking-wide">
-                Riwayat Sistem Integrasi & Turnaround Time Operasional
+              <h3 className="text-base font-bold text-slate-900 tracking-wide uppercase">
+                RIWAYAT BONGKAR
               </h3>
             </div>
             <p className="text-xs text-slate-600 mt-1">
-              Pelacakan durasi armada dari saat masuk ke posko security hingga proses selesai dan keluar gerbang, dilengkapi rincian durasi per masing-masing sub-proses.
+              Riwayat operasional & turnaround time armada dari Pos Security (Gate In) hingga selesai bongkar dan keluar gerbang, dilengkapi rincian durasi per sub-proses.
             </p>
           </div>
 
@@ -843,6 +834,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
         </div>
 
+        {/* Subheader RIWAYAT BONGKAR langsung di atas daftar kartu armada */}
+        <div className="flex items-center justify-between gap-2 pt-1 border-b border-slate-200 pb-2">
+          <div className="flex items-center gap-2">
+            <Warehouse className="w-4 h-4 text-amber-600" />
+            <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+              RIWAYAT BONGKAR
+            </h4>
+          </div>
+          <span className="text-[11px] font-mono-num font-bold text-slate-600">
+            {filteredHistoryTrucks.length} Armada
+          </span>
+        </div>
+
         {/* List of Vehicles with Expandable Sub-Process Breakdown */}
         {filteredHistoryTrucks.length === 0 ? (
           <div className="text-center py-10 bg-slate-950/40 border border-dashed border-slate-800 rounded-xl text-slate-500">
@@ -863,6 +867,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <div className="space-y-3">
             {filteredHistoryTrucks.map((tx) => {
               const { checkpoints, totalDuration } = getOperationalTimeline(tx);
+              const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
               const isExpanded = expandedTxId === tx.id;
               const isCompleted = tx.status === 'COMPLETED';
 
@@ -881,8 +886,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                       <span className="font-mono text-base font-black text-amber-900 bg-amber-100 px-3 py-1 rounded-lg border border-amber-300 tracking-wider">
                         {tx.vehiclePlate}
                       </span>
-                      <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 border border-slate-300">
-                        {tx.queueNumber}
+                      <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-sky-50 text-sky-800 border border-sky-300">
+                        {ritInfo.ritCategory}
                       </span>
                       <span className={`px-2.5 py-0.5 rounded text-[11px] font-bold ${
                         isCompleted
@@ -935,10 +940,21 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                           <button
                             type="button"
                             onClick={() => onOpenTicket(tx)}
-                            className="p-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg transition-colors font-bold"
-                            title="Cetak Tiket Timbang BAPB"
+                            className="p-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg transition-colors font-bold cursor-pointer"
+                            title="Cetak Dokumen Berita Acara In Out"
                           >
                             <Printer className="w-4 h-4" />
+                          </button>
+                        )}
+
+                        {onDeleteTransaction && (
+                          <button
+                            type="button"
+                            onClick={() => setDeletingTx(tx)}
+                            className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg transition-colors font-bold cursor-pointer"
+                            title="Hapus Riwayat Bongkar"
+                          >
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         )}
                       </div>
@@ -1313,6 +1329,107 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           transaction={selectedTimelineTx}
           onClose={() => setSelectedTimelineTx(null)}
         />
+      )}
+
+      {/* Modal Konfirmasi Hapus Riwayat Bongkar */}
+      {deletingTx && onDeleteTransaction && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+          onClick={() => setDeletingTx(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-tx-modal-title"
+            className="w-full max-w-md rounded-2xl bg-white border border-slate-300 shadow-2xl overflow-hidden text-slate-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-rose-50/80">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-lg bg-rose-100 border border-rose-200 flex items-center justify-center text-rose-700 shrink-0">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 id="delete-tx-modal-title" className="text-sm font-bold text-slate-900">
+                    Hapus Data Riwayat Bongkar?
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    Konfirmasi penghapusan transaksi armada
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeletingTx(null)}
+                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200/70 transition-colors cursor-pointer"
+                title="Tutup"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3 text-xs">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Nomor Polisi:</span>
+                  <strong className="font-mono font-bold text-slate-900">{deletingTx.vehiclePlate}</strong>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">No. RIT:</span>
+                  <strong className="font-mono font-bold text-sky-800">
+                    {resolveTransactionRitInfo(deletingTx, transactions, schedules).ritCategory}
+                  </strong>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Driver / PO:</span>
+                  <strong className="text-slate-900">
+                    {deletingTx.driverName} · {deletingTx.poNumber}
+                  </strong>
+                </div>
+                {deletingTx.nettoWeight > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Netto Terealisasi:</span>
+                    <strong className="font-mono font-bold text-emerald-700">
+                      {deletingTx.nettoWeight.toLocaleString('id-ID')} Kg ({(deletingTx.nettoWeight / 1000).toFixed(2)} Ton)
+                    </strong>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-rose-200 bg-rose-50/80 p-3 text-rose-900 leading-relaxed">
+                Data transaksi ini akan dihapus permanen.
+                {deletingTx.status === 'COMPLETED' && deletingTx.nettoWeight > 0
+                  ? ' Realisasi tonase PO akan otomatis dikurangi sesuai berat netto transaksi ini.'
+                  : ''}
+                {deletingTx.scheduleId
+                  ? ' Status jadwal pengiriman terkait juga akan dikembalikan ke Terjadwal.'
+                  : ''}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-slate-200 bg-slate-50">
+              <button
+                type="button"
+                onClick={() => setDeletingTx(null)}
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetId = deletingTx.id;
+                  setDeletingTx(null);
+                  onDeleteTransaction(targetId);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition-colors shadow-xs cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Hapus Data</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
