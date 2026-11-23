@@ -834,15 +834,15 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
         </div>
 
-        {/* Subheader RIWAYAT BONGKAR langsung di atas daftar kartu armada */}
-        <div className="flex items-center justify-between gap-2 pt-1 border-b border-slate-200 pb-2">
+        {/* Subheader Durasi Waktu Riwayat Bongkar langsung di atas daftar kartu armada */}
+        <div className="flex items-center justify-between gap-2 pt-1 border-b border-slate-200 pb-2.5">
           <div className="flex items-center gap-2">
-            <Warehouse className="w-4 h-4 text-amber-600" />
-            <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-              RIWAYAT BONGKAR
-            </h4>
+            <Warehouse className="w-5 h-5 text-amber-600" />
+            <h3 className="text-base font-bold text-slate-900 tracking-wide">
+              Durasi Waktu Riwayat Bongkar
+            </h3>
           </div>
-          <span className="text-[11px] font-mono-num font-bold text-slate-600">
+          <span className="text-xs font-mono-num font-bold text-slate-600">
             {filteredHistoryTrucks.length} Armada
           </span>
         </div>
