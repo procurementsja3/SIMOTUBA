@@ -18,11 +18,13 @@ import {
   Sparkles,
   Truck,
   Loader2,
-  Check
+  Check,
+  SlidersHorizontal,
+  Copy
 } from 'lucide-react';
 import { PurchaseOrder, ArrivalSchedule, CoalTransaction } from '../types/coal';
 
-export const MAX_SCHEDULES_PER_PO = 20;
+export const MAX_SCHEDULES_PER_PO = 100;
 
 interface MultiRowItem {
   id: string;
@@ -79,6 +81,35 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
   const [aiAdvice, setAiAdvice] = useState<AiScheduleAdvice | null>(null);
   const [isLoadingAiAdvice, setIsLoadingAiAdvice] = useState(false);
   const [aiAdviceError, setAiAdviceError] = useState<string | null>(null);
+
+  // Manual Creation & Bulk Update Panel state
+  const [isManualPanelOpen, setIsManualPanelOpen] = useState(true);
+  const [manualFeedback, setManualFeedback] = useState<string | null>(null);
+  const [manualConfig, setManualConfig] = useState<{
+    rowCount: string;
+    startDate: string;
+    ritsPerDay: number;
+    tonnageKg: string;
+    truckCount: string;
+    remarksPrefix: string;
+    startRitNumber: string;
+    applyDate: boolean;
+    applyTonnage: boolean;
+    applyTruckCount: boolean;
+    applyRemarks: boolean;
+  }>({
+    rowCount: '2',
+    startDate: new Date().toISOString().slice(0, 10),
+    ritsPerDay: 2,
+    tonnageKg: '30000',
+    truckCount: '1',
+    remarksPrefix: 'PENGIRIMAN BATUBARA RIT KE-',
+    startRitNumber: '1',
+    applyDate: true,
+    applyTonnage: true,
+    applyTruckCount: true,
+    applyRemarks: true,
+  });
 
   // Per-column search filters for table headers
   const [colSearchId, setColSearchId] = useState('');
@@ -194,8 +225,14 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
   // Watch for initialPoId passed from PO Management
   useEffect(() => {
     if (initialPoId) {
+      const existingCount = schedules.filter((s) => s.poId === initialPoId).length;
       setSelectedPoId(initialPoId);
       setMultiRows([createDefaultFirstRow(initialPoId)]);
+      setManualConfig((prev) => ({
+        ...prev,
+        startRitNumber: String(existingCount + 1),
+      }));
+      setManualFeedback(null);
       setIsModalOpen(true);
       if (onClearInitialPoId) {
         onClearInitialPoId();
@@ -469,8 +506,18 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
     setSelectedPoId(newPoId);
     setAiAdvice(null);
     setAiAdviceError(null);
+    setManualFeedback(null);
     const count = schedules.filter((s) => s.poId === newPoId).length;
     const remaining = Math.max(0, MAX_SCHEDULES_PER_PO - count);
+
+    setManualConfig((prev) => ({
+      ...prev,
+      startRitNumber: String(count + 1),
+      rowCount:
+        remaining > 0 && Number(prev.rowCount) > remaining
+          ? String(remaining)
+          : prev.rowCount,
+    }));
 
     const nextRows =
       multiRows.length > remaining && remaining > 0
@@ -486,6 +533,191 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
           : row;
       })
     );
+  };
+
+  // Timezone-safe YYYY-MM-DD day offset helper
+  const addDaysToDateStr = (baseDateStr: string, offsetDays: number): string => {
+    const clean = (baseDateStr || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const parts = clean.split('-').map(Number);
+    if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) {
+      return new Date().toISOString().slice(0, 10);
+    }
+    const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] + offsetDays));
+    return dt.toISOString().slice(0, 10);
+  };
+
+  const computeManualDate = (startDate: string, ritsPerDay: number, index: number): string => {
+    const cleanStart = (startDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    if (!ritsPerDay || ritsPerDay <= 0) return cleanStart;
+    return addDaysToDateStr(cleanStart, Math.floor(index / ritsPerDay));
+  };
+
+  const formatManualRemark = (prefix: string, ritNum: number): string => {
+    const trimmed = prefix.trim().toUpperCase();
+    if (!trimmed) return `PENGIRIMAN BATUBARA RIT KE-${ritNum}`;
+    return /[-#\s]$/.test(trimmed) ? `${trimmed}${ritNum}` : `${trimmed} ${ritNum}`;
+  };
+
+  // Manual Generate / Replace entire draft schedule list with custom settings
+  const handleManualGenerateList = () => {
+    if (remainingQuota <= 0 || isQuotaFull) {
+      setCreateError(`Kuota maksimal ${MAX_SCHEDULES_PER_PO} jadwal untuk PO ini sudah penuh.`);
+      return;
+    }
+    const requestedCount = Math.floor(Number(manualConfig.rowCount) || 0);
+    if (requestedCount < 1) {
+      setCreateError('Jumlah jadwal manual minimal 1 baris.');
+      return;
+    }
+    const tonnageNum = Number(manualConfig.tonnageKg);
+    if (!tonnageNum || tonnageNum <= 0) {
+      setCreateError('Estimasi berat muatan manual harus lebih dari 0 Kg.');
+      return;
+    }
+
+    const finalCount = Math.min(requestedCount, remainingQuota);
+    const truckNum = Math.max(1, Math.floor(Number(manualConfig.truckCount) || 1));
+    const startRit = Math.max(1, Math.floor(Number(manualConfig.startRitNumber) || poScheduleCount + 1));
+    const startDate = manualConfig.startDate || new Date().toISOString().slice(0, 10);
+
+    setCreateError(null);
+    const nowTs = Date.now();
+    const generated: MultiRowItem[] = Array.from({ length: finalCount }, (_, i) => ({
+      id: `row-manual-${nowTs}-${i}`,
+      etaDateTime: computeManualDate(startDate, manualConfig.ritsPerDay, i),
+      estimatedTonnage: tonnageNum,
+      estimatedTruckCount: truckNum,
+      remarks: formatManualRemark(manualConfig.remarksPrefix, startRit + i),
+    }));
+
+    setMultiRows(generated);
+    const cappedNote =
+      requestedCount > remainingQuota
+        ? ` (disesuaikan dengan sisa slot ${remainingQuota})`
+        : '';
+    setManualFeedback(
+      `Daftar manual dibuat: ${finalCount} jadwal${cappedNote} · total ${(finalCount * tonnageNum).toLocaleString('id-ID')} Kg.`
+    );
+  };
+
+  // Manual Append N rows to current draft schedule list
+  const handleManualAppendRows = () => {
+    const availableToAdd = Math.max(0, remainingQuota - multiRows.length);
+    if (availableToAdd <= 0 || isQuotaFull) {
+      setCreateError(
+        `Tidak dapat menambah baris lagi. Sisa slot PO ini (${remainingQuota}) sudah terpakai semua di daftar.`
+      );
+      return;
+    }
+    const requestedCount = Math.floor(Number(manualConfig.rowCount) || 0);
+    if (requestedCount < 1) {
+      setCreateError('Jumlah baris manual minimal 1.');
+      return;
+    }
+    const tonnageNum = Number(manualConfig.tonnageKg);
+    if (!tonnageNum || tonnageNum <= 0) {
+      setCreateError('Estimasi berat muatan manual harus lebih dari 0 Kg.');
+      return;
+    }
+
+    const addCount = Math.min(requestedCount, availableToAdd);
+    const truckNum = Math.max(1, Math.floor(Number(manualConfig.truckCount) || 1));
+    const baseStartRit = Math.max(1, Math.floor(Number(manualConfig.startRitNumber) || poScheduleCount + 1));
+    const startDate = manualConfig.startDate || new Date().toISOString().slice(0, 10);
+    const existingLen = multiRows.length;
+
+    setCreateError(null);
+    const nowTs = Date.now();
+    const appended: MultiRowItem[] = Array.from({ length: addCount }, (_, i) => {
+      const globalIdx = existingLen + i;
+      return {
+        id: `row-manual-add-${nowTs}-${i}`,
+        etaDateTime: computeManualDate(startDate, manualConfig.ritsPerDay, globalIdx),
+        estimatedTonnage: tonnageNum,
+        estimatedTruckCount: truckNum,
+        remarks: formatManualRemark(manualConfig.remarksPrefix, baseStartRit + globalIdx),
+      };
+    });
+
+    setMultiRows([...multiRows, ...appended]);
+    setManualFeedback(
+      `Berhasil menambah ${addCount} baris manual ke daftar (total ${existingLen + addCount} jadwal).`
+    );
+  };
+
+  // Manual Bulk Update all existing rows in multiRows (only selected fields)
+  const handleManualBulkUpdateRows = () => {
+    if (multiRows.length === 0) {
+      setCreateError('Belum ada baris jadwal di daftar untuk di-update.');
+      return;
+    }
+    if (
+      !manualConfig.applyDate &&
+      !manualConfig.applyTonnage &&
+      !manualConfig.applyTruckCount &&
+      !manualConfig.applyRemarks
+    ) {
+      setCreateError('Centang minimal satu kolom yang ingin di-update secara manual.');
+      return;
+    }
+
+    const tonnageNum = Number(manualConfig.tonnageKg);
+    if (manualConfig.applyTonnage && (!tonnageNum || tonnageNum <= 0)) {
+      setCreateError('Estimasi berat muatan manual harus lebih dari 0 Kg.');
+      return;
+    }
+
+    const truckNum = Math.max(1, Math.floor(Number(manualConfig.truckCount) || 1));
+    const startRit = Math.max(1, Math.floor(Number(manualConfig.startRitNumber) || poScheduleCount + 1));
+    const startDate = manualConfig.startDate || new Date().toISOString().slice(0, 10);
+
+    setCreateError(null);
+    setMultiRows(
+      multiRows.map((row, idx) => ({
+        ...row,
+        etaDateTime: manualConfig.applyDate
+          ? computeManualDate(startDate, manualConfig.ritsPerDay, idx)
+          : row.etaDateTime,
+        estimatedTonnage: manualConfig.applyTonnage ? tonnageNum : row.estimatedTonnage,
+        estimatedTruckCount: manualConfig.applyTruckCount ? truckNum : row.estimatedTruckCount,
+        remarks: manualConfig.applyRemarks
+          ? formatManualRemark(manualConfig.remarksPrefix, startRit + idx)
+          : row.remarks,
+      }))
+    );
+
+    const updatedParts = [
+      manualConfig.applyDate ? 'Tanggal ETA' : null,
+      manualConfig.applyTonnage ? `Berat ${tonnageNum.toLocaleString('id-ID')} Kg` : null,
+      manualConfig.applyTruckCount ? `${truckNum} Armada` : null,
+      manualConfig.applyRemarks ? 'Keterangan RIT' : null,
+    ].filter(Boolean);
+
+    setManualFeedback(
+      `Update manual diterapkan ke ${multiRows.length} baris (${updatedParts.join(', ')}).`
+    );
+  };
+
+  // Duplicate a single row right below it
+  const handleDuplicateMultiRow = (rowId: string) => {
+    if (multiRows.length >= remainingQuota) {
+      setCreateError(
+        `Maksimal ${MAX_SCHEDULES_PER_PO} data per PO. Sisa slot yang tersedia untuk PO ini adalah ${remainingQuota} data.`
+      );
+      return;
+    }
+    const idx = multiRows.findIndex((r) => r.id === rowId);
+    if (idx === -1) return;
+    setCreateError(null);
+    const source = multiRows[idx];
+    const cloned: MultiRowItem = {
+      ...source,
+      id: `row-dup-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      remarks: `PENGIRIMAN BATUBARA RIT KE-${poScheduleCount + multiRows.length + 1}`,
+    };
+    const next = [...multiRows];
+    next.splice(idx + 1, 0, cloned);
+    setMultiRows(next);
   };
 
   // Add 1 row in multi mode
@@ -518,7 +750,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
   const handleQuickGenerateRows = (countToAdd: number) => {
     const maxCanAdd = Math.min(countToAdd, remainingQuota);
     if (maxCanAdd <= 0) {
-      setCreateError('Kuota 20 data untuk PO ini sudah penuh.');
+      setCreateError(`Kuota ${MAX_SCHEDULES_PER_PO} data untuk PO ini sudah penuh.`);
       return;
     }
     setCreateError(null);
@@ -684,7 +916,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
     const suggested = aiAdvice?.usulPembagianBaris || [];
     if (suggested.length === 0) return;
     if (remainingQuota <= 0) {
-      setCreateError('Kuota 20 jadwal untuk PO ini sudah penuh.');
+      setCreateError(`Kuota ${MAX_SCHEDULES_PER_PO} jadwal untuk PO ini sudah penuh.`);
       return;
     }
     setCreateError(null);
@@ -824,11 +1056,11 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
               Jadwal Pengiriman Batubara (Real-Time ETA Dispatch)
             </h2>
             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-900 border border-amber-300">
-              Maks. 20 Data / PO
+              Maks. {MAX_SCHEDULES_PER_PO} Data / PO
             </span>
           </div>
           <p className="text-xs text-slate-600 mt-1">
-            Monitoring perkiraan waktu tiba (ETA) pengiriman batubara per PO dari tambang/pelabuhan. Setiap PO dapat menampung maksimal 20 data pengiriman.
+            Monitoring perkiraan waktu tiba (ETA) pengiriman batubara per PO dari tambang/pelabuhan. Setiap PO dapat menampung maksimal {MAX_SCHEDULES_PER_PO} data pengiriman.
           </p>
         </div>
 
@@ -841,9 +1073,15 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                 if (activePos.length > 0 && !selectedPoId) {
                   setSelectedPoId(targetPoId);
                 }
+                const targetCount = schedules.filter((s) => s.poId === targetPoId).length;
                 setCreateError(null);
                 setAiAdvice(null);
                 setAiAdviceError(null);
+                setManualFeedback(null);
+                setManualConfig((prev) => ({
+                  ...prev,
+                  startRitNumber: String(targetCount + 1),
+                }));
                 setMultiRows([createDefaultFirstRow(targetPoId)]);
                 setIsModalOpen(true);
               }}
@@ -1315,7 +1553,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                           <span>{sch.poNumber}</span>
                           <span 
                             className="px-1 py-0.2 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-300"
-                            title={`Data ke-${poIndex >= 0 ? poIndex + 1 : 1} dari total ${poTotal} data di PO ini (maksimal 20)`}
+                            title={`Data ke-${poIndex >= 0 ? poIndex + 1 : 1} dari total ${poTotal} data di PO ini (maksimal ${MAX_SCHEDULES_PER_PO})`}
                           >
                             #{poIndex >= 0 ? poIndex + 1 : 1}/{poTotal}
                           </span>
@@ -1405,97 +1643,99 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
         </div>
       </div>
 
-      {/* Modal Add Schedule (Supports Single & Multi/Batch up to 20 data per PO) */}
+      {/* Full-Screen Modal Add Schedule (Supports Single & Multi/Batch up to 100 data per PO) */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
-          <div className="bg-white border border-slate-300 rounded-2xl max-w-5xl w-full p-4 sm:p-6 shadow-2xl my-2 sm:my-4 max-h-[94vh] overflow-y-auto text-slate-900">
-            {/* Modal Header */}
-            <div className="flex justify-between items-center pb-3 border-b border-slate-200 mb-4">
-              <div className="flex items-center gap-2.5">
-                <Calendar className="w-5 h-5 text-amber-600 shrink-0" />
-                <div>
-                  <h3 className="text-base sm:text-lg font-black text-slate-900 leading-tight">
-                    Input Jadwal Pengiriman
-                  </h3>
-                  <p className="text-xs text-slate-600 mt-0.5">
-                    Maksimal 20 data jadwal pengiriman dalam 1 Purchase Order (PO)
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="text-slate-500 hover:text-slate-900 p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* PO Selector Field */}
-            <div className="space-y-2 mb-4">
-              <label className="block text-xs font-medium text-slate-300">
-                Pilih Purchase Order (PO) Aktif *
-              </label>
-              <select
-                required
-                value={selectedPoId}
-                onChange={(e) => handlePoChange(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
-              >
-                {activePos.length === 0 ? (
-                  <option value="">(Belum ada PO aktif — Silakan buat PO baru terlebih dahulu)</option>
-                ) : (
-                  activePos.map((po) => {
-                    const count = schedules.filter((s) => s.poId === po.id).length;
-                    const isPoFull = count >= MAX_SCHEDULES_PER_PO;
-                    return (
-                      <option key={po.id} value={po.id}>
-                        [{count}/{MAX_SCHEDULES_PER_PO} Data{isPoFull ? ' - PENUH' : ''}] {po.poNumber} — {po.supplierName} (Sisa Kuota: {(po.targetTonnage - po.receivedTonnage).toLocaleString('id-ID')} Kg)
-                      </option>
-                    );
-                  })
-                )}
-              </select>
-
-              {/* Quota Progress Banner for Selected PO */}
-              <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-300 font-semibold flex items-center gap-1.5">
-                    <Layers className="w-3.5 h-3.5 text-amber-400" />
-                    Status Kuota Jadwal PO Ini:
-                  </span>
-                  <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                    isQuotaFull 
-                      ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' 
-                      : remainingQuota <= 5
-                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                  }`}>
-                    {poScheduleCount} / {MAX_SCHEDULES_PER_PO} Terdaftar ({isQuotaFull ? 'KUOTA PENUH' : `Sisa ${remainingQuota} slot`})
-                  </span>
-                </div>
-
-                {/* Visual Progress Bar (20 steps) */}
-                <div className="w-full bg-slate-900 h-2.5 rounded-full overflow-hidden flex border border-slate-800 p-0.5">
-                  <div 
-                    className={`h-full rounded-full transition-all duration-300 ${
-                      isQuotaFull ? 'bg-rose-500' : poScheduleCount > 15 ? 'bg-amber-500' : 'bg-emerald-500'
-                    }`}
-                    style={{ width: `${(poScheduleCount / MAX_SCHEDULES_PER_PO) * 100}%` }}
-                  />
-                </div>
-
-                {isQuotaFull && (
-                  <p className="text-[11px] text-rose-400 font-medium flex items-center gap-1 mt-1">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    Batas maksimal 20 data jadwal kedatangan untuk PO ini sudah tercapai (20/20). Anda tidak dapat menambah jadwal lagi pada PO ini.
-                  </p>
-                )}
+        <div className="fixed inset-0 z-50 bg-white flex flex-col w-screen h-screen overflow-hidden text-slate-900">
+          {/* Full-Width Sticky Header */}
+          <div className="shrink-0 flex justify-between items-center px-4 sm:px-6 lg:px-8 py-3.5 border-b border-slate-200 bg-white">
+            <div className="flex items-center gap-2.5">
+              <Calendar className="w-5 h-5 text-amber-600 shrink-0" />
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-slate-900 leading-tight">
+                  Input Jadwal Pengiriman
+                </h3>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Maksimal {MAX_SCHEDULES_PER_PO} data jadwal pengiriman dalam 1 Purchase Order (PO)
+                </p>
               </div>
             </div>
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+              className="inline-flex items-center gap-1.5 text-slate-600 hover:text-slate-900 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 border border-slate-200 transition-colors text-xs font-semibold cursor-pointer"
+              title="Tutup halaman input jadwal"
+            >
+              <X className="w-4 h-4" />
+              <span className="hidden sm:inline">Tutup</span>
+            </button>
+          </div>
 
-            {/* Schedule Entry Form */}
-            <form onSubmit={handleMultiSubmit} className="space-y-4">
+          {/* Schedule Entry Full-Screen Form */}
+          <form onSubmit={handleMultiSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            {/* Scrollable Full-Width Workspace */}
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4">
+              {/* PO Selector Field */}
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Pilih Purchase Order (PO) Aktif *
+                </label>
+                <select
+                  required
+                  value={selectedPoId}
+                  onChange={(e) => handlePoChange(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
+                >
+                  {activePos.length === 0 ? (
+                    <option value="">(Belum ada PO aktif — Silakan buat PO baru terlebih dahulu)</option>
+                  ) : (
+                    activePos.map((po) => {
+                      const count = schedules.filter((s) => s.poId === po.id).length;
+                      const isPoFull = count >= MAX_SCHEDULES_PER_PO;
+                      return (
+                        <option key={po.id} value={po.id}>
+                          [{count}/{MAX_SCHEDULES_PER_PO} Data{isPoFull ? ' - PENUH' : ''}] {po.poNumber} — {po.supplierName} (Sisa Kuota: {(po.targetTonnage - po.receivedTonnage).toLocaleString('id-ID')} Kg)
+                        </option>
+                      );
+                    })
+                  )}
+                </select>
+
+                {/* Quota Progress Banner for Selected PO */}
+                <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300 font-semibold flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-amber-400" />
+                      Status Kuota Jadwal PO Ini:
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                      isQuotaFull 
+                        ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' 
+                        : remainingQuota <= 10
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    }`}>
+                      {poScheduleCount} / {MAX_SCHEDULES_PER_PO} Terdaftar ({isQuotaFull ? 'KUOTA PENUH' : `Sisa ${remainingQuota} slot`})
+                    </span>
+                  </div>
+
+                  {/* Visual Progress Bar */}
+                  <div className="w-full bg-slate-900 h-2.5 rounded-full overflow-hidden flex border border-slate-800 p-0.5">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        isQuotaFull ? 'bg-rose-500' : poScheduleCount > MAX_SCHEDULES_PER_PO * 0.8 ? 'bg-amber-500' : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.min(100, (poScheduleCount / MAX_SCHEDULES_PER_PO) * 100)}%` }}
+                    />
+                  </div>
+
+                  {isQuotaFull && (
+                    <p className="text-[11px] text-rose-400 font-medium flex items-center gap-1 mt-1">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      Batas maksimal {MAX_SCHEDULES_PER_PO} data jadwal kedatangan untuk PO ini sudah tercapai ({MAX_SCHEDULES_PER_PO}/{MAX_SCHEDULES_PER_PO}). Anda tidak dapat menambah jadwal lagi pada PO ini.
+                    </p>
+                  )}
+                </div>
+              </div>
               {createError && (
                 <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs font-semibold text-rose-900 flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
@@ -1509,6 +1749,19 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                   </span>
 
                   <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsManualPanelOpen((prev) => !prev)}
+                      className={`px-2.5 py-1 text-xs font-bold rounded border transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer ${
+                        isManualPanelOpen
+                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700'
+                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border-emerald-300'
+                      }`}
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                      <span>Update Manual</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => handleAddMultiRow()}
@@ -1547,6 +1800,275 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                     </button>
                   </div>
                 </div>
+
+                {/* Panel Pengisian & Update Manual Daftar Jadwal */}
+                {isManualPanelOpen && (
+                  <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3.5 space-y-3 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <SlidersHorizontal className="w-4 h-4 text-emerald-700 shrink-0" />
+                        <div>
+                          <div className="font-bold text-slate-900">
+                            Pengisian &amp; Update Manual Daftar Jadwal
+                          </div>
+                          <div className="text-[11px] text-slate-600">
+                            Atur jumlah jadwal, tanggal mulai, rit per hari, estimasi berat, dan penomoran RIT secara manual lalu terapkan ke daftar.
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsManualPanelOpen(false)}
+                        className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-2 py-1 rounded hover:bg-white/70 cursor-pointer"
+                      >
+                        Sembunyikan
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                          Jumlah Jadwal (Maks {remainingQuota})
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={Math.max(1, remainingQuota)}
+                          value={manualConfig.rowCount}
+                          onChange={(e) =>
+                            setManualConfig((prev) => ({ ...prev, rowCount: e.target.value }))
+                          }
+                          className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-mono-num focus:outline-none focus:border-emerald-600"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                          Tanggal Mulai (ETA)
+                        </label>
+                        <input
+                          type="date"
+                          value={manualConfig.startDate}
+                          onClick={(e) => {
+                            try {
+                              (e.currentTarget as HTMLInputElement).showPicker?.();
+                            } catch {
+                              /* fallback */
+                            }
+                          }}
+                          onChange={(e) =>
+                            setManualConfig((prev) => ({ ...prev, startDate: e.target.value }))
+                          }
+                          className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-mono-num focus:outline-none focus:border-emerald-600 cursor-pointer"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                          Pola Tanggal (Rit/Hari)
+                        </label>
+                        <select
+                          value={manualConfig.ritsPerDay}
+                          onChange={(e) =>
+                            setManualConfig((prev) => ({
+                              ...prev,
+                              ritsPerDay: Number(e.target.value),
+                            }))
+                          }
+                          className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-600"
+                        >
+                          <option value={0}>Semua Tanggal Sama</option>
+                          <option value={1}>1 Rit / Hari (+1 Hari)</option>
+                          <option value={2}>2 Rit / Hari</option>
+                          <option value={3}>3 Rit / Hari</option>
+                          <option value={4}>4 Rit / Hari</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-1 whitespace-nowrap truncate">
+                          Berat / Jadwal (Kg)
+                          {Number(manualConfig.tonnageKg) > 0 && (
+                            <span className="ml-1 text-emerald-700 font-mono-num">
+                              ({(Number(manualConfig.tonnageKg) / 1000).toLocaleString('id-ID', {
+                                minimumFractionDigits: 1,
+                                maximumFractionDigits: 2,
+                              })} T)
+                            </span>
+                          )}
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={manualConfig.tonnageKg}
+                          onChange={(e) =>
+                            setManualConfig((prev) => ({ ...prev, tonnageKg: e.target.value }))
+                          }
+                          placeholder="30000"
+                          className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-mono-num focus:outline-none focus:border-emerald-600"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                          Armada / Baris
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={manualConfig.truckCount}
+                          onChange={(e) =>
+                            setManualConfig((prev) => ({ ...prev, truckCount: e.target.value }))
+                          }
+                          className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-mono-num focus:outline-none focus:border-emerald-600"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                          Mulai RIT Ke-
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={manualConfig.startRitNumber}
+                          onChange={(e) =>
+                            setManualConfig((prev) => ({
+                              ...prev,
+                              startRitNumber: e.target.value,
+                            }))
+                          }
+                          className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-mono-num focus:outline-none focus:border-emerald-600"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 items-end">
+                      <div className="lg:col-span-5">
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                          Awalan Keterangan Pengiriman
+                        </label>
+                        <input
+                          type="text"
+                          value={manualConfig.remarksPrefix}
+                          onChange={(e) =>
+                            setManualConfig((prev) => ({
+                              ...prev,
+                              remarksPrefix: e.target.value.toUpperCase(),
+                            }))
+                          }
+                          placeholder="PENGIRIMAN BATUBARA RIT KE-"
+                          className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 uppercase focus:outline-none focus:border-emerald-600"
+                        />
+                      </div>
+
+                      <div className="lg:col-span-7 flex flex-wrap items-center gap-x-3 gap-y-1.5 bg-white/80 border border-emerald-200 rounded-lg px-3 py-2">
+                        <span className="text-[11px] font-bold text-slate-700">
+                          Kolom di-update:
+                        </span>
+                        <label className="inline-flex items-center gap-1 text-[11px] text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={manualConfig.applyDate}
+                            onChange={(e) =>
+                              setManualConfig((prev) => ({
+                                ...prev,
+                                applyDate: e.target.checked,
+                              }))
+                            }
+                            className="rounded border-slate-300 text-emerald-600"
+                          />
+                          <span>Tanggal ETA</span>
+                        </label>
+                        <label className="inline-flex items-center gap-1 text-[11px] text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={manualConfig.applyTonnage}
+                            onChange={(e) =>
+                              setManualConfig((prev) => ({
+                                ...prev,
+                                applyTonnage: e.target.checked,
+                              }))
+                            }
+                            className="rounded border-slate-300 text-emerald-600"
+                          />
+                          <span>Berat (Kg)</span>
+                        </label>
+                        <label className="inline-flex items-center gap-1 text-[11px] text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={manualConfig.applyTruckCount}
+                            onChange={(e) =>
+                              setManualConfig((prev) => ({
+                                ...prev,
+                                applyTruckCount: e.target.checked,
+                              }))
+                            }
+                            className="rounded border-slate-300 text-emerald-600"
+                          />
+                          <span>Armada</span>
+                        </label>
+                        <label className="inline-flex items-center gap-1 text-[11px] text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={manualConfig.applyRemarks}
+                            onChange={(e) =>
+                              setManualConfig((prev) => ({
+                                ...prev,
+                                applyRemarks: e.target.checked,
+                              }))
+                            }
+                            className="rounded border-slate-300 text-emerald-600"
+                          />
+                          <span>Keterangan RIT</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={handleManualBulkUpdateRows}
+                        disabled={multiRows.length === 0 || isQuotaFull}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shadow-xs cursor-pointer"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Terapkan Update Manual ({multiRows.length} Baris)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleManualGenerateList}
+                        disabled={remainingQuota <= 0 || isQuotaFull}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-emerald-100 disabled:opacity-50 text-emerald-900 border border-emerald-300 text-xs font-bold rounded-lg transition-colors shadow-xs cursor-pointer"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>
+                          Buat / Ganti Daftar ({Math.min(Math.max(1, Math.floor(Number(manualConfig.rowCount) || 1)), Math.max(1, remainingQuota))} Jadwal)
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleManualAppendRows}
+                        disabled={multiRows.length >= remainingQuota || isQuotaFull}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-800 border border-slate-300 text-xs font-semibold rounded-lg transition-colors shadow-xs cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-amber-600" />
+                        <span>
+                          Tambah {Math.max(1, Math.floor(Number(manualConfig.rowCount) || 1))} Baris Manual
+                        </span>
+                      </button>
+                    </div>
+
+                    {manualFeedback && (
+                      <div className="p-2 rounded-lg bg-white border border-emerald-300 text-emerald-900 text-[11px] font-semibold flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>{manualFeedback}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Rekomendasi Harian (2 Rit / 2 Armada) & Saran AI */}
                 {currentPo && (
@@ -1659,7 +2181,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                 )}
 
                 {/* Rows List */}
-                <div className="space-y-3 max-h-[54vh] overflow-y-auto pr-1">
+                <div className="space-y-3">
                   {multiRows.map((row, idx) => {
                     const rowSlotNumber = poScheduleCount + idx + 1;
                     return (
@@ -1672,18 +2194,29 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                             <span className="w-6 h-6 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center justify-center text-[11px] font-bold">
                               {idx + 1}
                             </span>
-                            Data Jadwal #{idx + 1} (Jadwal ke-{rowSlotNumber} dari 20)
+                            Data Jadwal #{idx + 1} (Jadwal ke-{rowSlotNumber} dari {MAX_SCHEDULES_PER_PO})
                           </span>
 
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveMultiRow(row.id)}
-                            disabled={multiRows.length <= 1}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 disabled:opacity-30 transition-colors cursor-pointer"
-                            title="Hapus baris jadwal ini"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleDuplicateMultiRow(row.id)}
+                              disabled={multiRows.length >= remainingQuota || isQuotaFull}
+                              className="p-1.5 text-slate-500 hover:text-sky-700 hover:bg-sky-50 rounded disabled:opacity-30 transition-colors cursor-pointer"
+                              title="Duplikat baris jadwal ini"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveMultiRow(row.id)}
+                              disabled={multiRows.length <= 1}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded disabled:opacity-30 transition-colors cursor-pointer"
+                              title="Hapus baris jadwal ini"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
@@ -1767,48 +2300,50 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                     );
                   })}
                 </div>
+            </div>
 
-                {/* Multi Summary */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <span className="text-slate-600">Total Jadwal Baru: </span>
-                    <strong className="text-slate-900 font-mono-num font-bold">{multiRows.length} Data</strong>
-                    <span className="text-slate-500 text-[11px] ml-2">
-                      (Total setelah simpan: <strong className="text-amber-800 font-mono-num font-bold">{poScheduleCount + multiRows.length}/20</strong>)
-                    </span>
-                  </div>
-
-                  <div>
-                    <span className="text-slate-600">Total Muatan: </span>
-                    <strong className="text-emerald-800 font-mono-num font-bold">
-                      {multiRows.reduce((sum, r) => sum + Number(r.estimatedTonnage || 0), 0).toLocaleString('id-ID')} Kg
-                    </strong>
-                  </div>
+            {/* Sticky Full-Width Footer Summary & Actions */}
+            <div className="shrink-0 bg-slate-50 border-t border-slate-200 px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs">
+                <div>
+                  <span className="text-slate-600">Total Jadwal Baru: </span>
+                  <strong className="text-slate-900 font-mono-num font-bold">{multiRows.length} Data</strong>
+                  <span className="text-slate-500 text-[11px] ml-2">
+                    (Total setelah simpan: <strong className="text-amber-800 font-mono-num font-bold">{poScheduleCount + multiRows.length}/{MAX_SCHEDULES_PER_PO}</strong>)
+                  </span>
                 </div>
 
-                <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setIsModalOpen(false)}
-                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition-colors border border-slate-300 cursor-pointer"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isQuotaFull || multiRows.length === 0 || poScheduleCount + multiRows.length > MAX_SCHEDULES_PER_PO}
-                    className={`px-5 py-2 font-bold text-xs rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer ${
-                      isQuotaFull || multiRows.length === 0 || poScheduleCount + multiRows.length > MAX_SCHEDULES_PER_PO
-                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
-                        : 'bg-amber-500 hover:bg-amber-600 text-slate-950'
-                    }`}
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Simpan {multiRows.length} Jadwal Pengiriman</span>
-                  </button>
+                <div>
+                  <span className="text-slate-600">Total Muatan: </span>
+                  <strong className="text-emerald-800 font-mono-num font-bold">
+                    {multiRows.reduce((sum, r) => sum + Number(r.estimatedTonnage || 0), 0).toLocaleString('id-ID')} Kg
+                  </strong>
                 </div>
-              </form>
-          </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 ml-auto">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg transition-colors border border-slate-300 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isQuotaFull || multiRows.length === 0 || poScheduleCount + multiRows.length > MAX_SCHEDULES_PER_PO}
+                  className={`px-5 py-2 font-bold text-xs rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer ${
+                    isQuotaFull || multiRows.length === 0 || poScheduleCount + multiRows.length > MAX_SCHEDULES_PER_PO
+                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
+                      : 'bg-amber-500 hover:bg-amber-600 text-slate-950'
+                  }`}
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Simpan {multiRows.length} Jadwal Pengiriman</span>
+                </button>
+              </div>
+            </div>
+          </form>
         </div>
       )}
 

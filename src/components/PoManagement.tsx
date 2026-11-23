@@ -23,6 +23,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { PurchaseOrder, ArrivalSchedule, CoalTransaction } from '../types/coal';
+import { MAX_SCHEDULES_PER_PO } from './ScheduleArrivals';
 
 export interface SupplierPoInputItem {
   id: string;
@@ -833,7 +834,7 @@ export const PoManagement: React.FC<PoManagementProps> = ({
                     const remaining = Math.max(0, po.targetTonnage - po.receivedTonnage);
                     const poSchedules = schedules.filter((s) => s.poId === po.id);
                     const count = poSchedules.length;
-                    const isFull = count >= 20;
+                    const isFull = count >= MAX_SCHEDULES_PER_PO;
 
                     return (
                       <tr key={po.id} className="hover:bg-slate-50 transition-colors">
@@ -887,7 +888,7 @@ export const PoManagement: React.FC<PoManagementProps> = ({
                             : 'bg-slate-100 text-slate-700 border border-slate-300'
                         }`}>
                           <Calendar className="w-3 h-3 text-amber-600" />
-                          <span className="font-mono-num">{count}/20 Rit</span>
+                          <span className="font-mono-num">{count}/{MAX_SCHEDULES_PER_PO} Rit</span>
                         </span>
                       </td>
 
@@ -916,7 +917,7 @@ export const PoManagement: React.FC<PoManagementProps> = ({
                               !isAdmin
                                 ? 'Hanya Admin yang dapat membuat jadwal'
                                 : isFull
-                                  ? 'Maksimal 20 data jadwal tercapai'
+                                  ? `Maksimal ${MAX_SCHEDULES_PER_PO} data jadwal tercapai`
                                   : 'Buat jadwal kedatangan untuk PO ini'
                             }
                           >
@@ -1123,7 +1124,7 @@ export const PoManagement: React.FC<PoManagementProps> = ({
                   {(() => {
                     const poSchedules = schedules.filter((s) => s.poId === po.id);
                     const count = poSchedules.length;
-                    const isFull = count >= 20;
+                    const isFull = count >= MAX_SCHEDULES_PER_PO;
 
                     return (
                       <>
@@ -1133,7 +1134,7 @@ export const PoManagement: React.FC<PoManagementProps> = ({
                             Jadwal Pengiriman:
                           </span>
                           <span className={`font-mono-num font-semibold ${isFull ? 'text-rose-400' : 'text-amber-400'}`}>
-                            {count} / 20 data {isFull && '(Maks Penuh)'}
+                            {count} / {MAX_SCHEDULES_PER_PO} data {isFull && '(Maks Penuh)'}
                           </span>
                         </div>
 
@@ -1146,10 +1147,10 @@ export const PoManagement: React.FC<PoManagementProps> = ({
                               ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
                               : 'bg-amber-500/10 hover:bg-amber-500 hover:text-slate-950 text-amber-800 border-amber-500/30 cursor-pointer'
                           }`}
-                          title={isFull ? 'Maksimal 20 data jadwal telah tercapai untuk PO ini' : 'Buat jadwal pengiriman untuk PO ini'}
+                          title={isFull ? `Maksimal ${MAX_SCHEDULES_PER_PO} data jadwal telah tercapai untuk PO ini` : 'Buat jadwal pengiriman untuk PO ini'}
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>{isFull ? 'Kuota Jadwal Penuh (20/20)' : 'Buat Jadwal Pengiriman'}</span>
+                          <span>{isFull ? `Kuota Jadwal Penuh (${MAX_SCHEDULES_PER_PO}/${MAX_SCHEDULES_PER_PO})` : 'Buat Jadwal Pengiriman'}</span>
                         </button>
 
                         {isAdmin && (
