@@ -2346,7 +2346,7 @@ export default function App() {
         />
 
         {/* Main Viewport Container */}
-        <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 lg:pb-8">
+        <main className="flex-1 w-full px-3 sm:px-5 lg:px-6 py-4 sm:py-6 pb-24 lg:pb-8">
           {/* Prompt reconnect when spreadsheet is linked but in-memory token needs refresh */}
           {isSheetsDbConfigured && !hasSheetsToken && activeTab !== 'googlesheet' && (
             <div className="mb-4 p-3.5 bg-amber-50 border border-amber-300 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900">
@@ -2514,7 +2514,7 @@ export default function App() {
 
         {/* Footer */}
         <footer className="border-t border-slate-900 bg-slate-950/80 py-4 text-center text-xs text-slate-500 mt-auto">
-          <div className="max-w-7xl mx-auto px-4 flex items-center justify-center">
+          <div className="w-full px-3 sm:px-5 lg:px-6 flex items-center justify-center">
             <div>
               SIMOTUBA · Sistem Monitoring Operasional Batubara & Jembatan Timbang Real-Time
             </div>

@@ -483,22 +483,22 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           {/* Rincian Daftar Jadwal yang Belum Check-in di Pos Security */}
           {isAlertExpanded && (
             <div className="pt-2 border-t border-amber-200/80 space-y-2.5">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                 {overdueDeliveryAlerts.map((sch) => (
                   <div
                     key={sch.id}
                     className="p-3 bg-white border border-amber-300 rounded-lg shadow-xs space-y-2 hover:border-amber-400 transition-all"
                   >
                     <div className="flex items-start justify-between gap-1.5">
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs font-mono font-bold text-amber-900">
                           PO: {sch.poNumber}
                         </div>
-                        <div className="text-xs font-bold text-slate-900 truncate max-w-[200px]">
+                        <div className="text-xs font-bold text-slate-900 truncate">
                           {sch.supplierName}
                         </div>
                       </div>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border shadow-xs ${
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border shadow-xs shrink-0 ${
                         sch.isOverdue
                           ? 'bg-rose-50 text-rose-800 border-rose-300 font-bold'
                           : 'bg-amber-50 text-amber-900 border-amber-300 font-bold'
@@ -508,23 +508,23 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     </div>
 
                     <div className="text-[11px] text-slate-600 space-y-0.5 pt-1 border-t border-slate-100">
-                      <div className="flex items-center justify-between">
-                        <span className="flex items-center gap-1 text-slate-500">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1 text-slate-500 shrink-0">
                           <Calendar className="w-3 h-3 text-amber-600" />
                           <span>Tanggal Seharusnya:</span>
                         </span>
                         <strong className="text-slate-900 font-mono-num font-bold">{sch.formattedEtaDate}</strong>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500">Estimasi Muatan:</span>
-                        <strong className="text-slate-900 font-mono-num font-bold">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-500 shrink-0">Estimasi Muatan:</span>
+                        <strong className="text-slate-900 font-mono-num font-bold text-right">
                           {(Number(sch.estimatedTonnage) / 1000).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ton ({Number(sch.estimatedTonnage).toLocaleString('id-ID')} Kg · {sch.estimatedTruckCount || 1} Truk)
                         </strong>
                       </div>
                       {sch.originMine && (
-                        <div className="flex items-center justify-between text-[10px] text-slate-500 truncate">
-                          <span>Asal Tambang:</span>
-                          <span className="text-slate-700 truncate max-w-[130px]">{sch.originMine}</span>
+                        <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
+                          <span className="shrink-0">Asal Tambang:</span>
+                          <span className="text-slate-700 truncate text-right">{sch.originMine}</span>
                         </div>
                       )}
                     </div>
