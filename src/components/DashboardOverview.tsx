@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Truck, 
   Scale, 
@@ -15,6 +15,7 @@ import {
   History,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
   Search,
   Printer,
   FileText,
@@ -24,7 +25,8 @@ import {
   Check,
   ChevronRight,
   Trash2,
-  X
+  X,
+  Building2
 } from 'lucide-react';
 import { PurchaseOrder, ArrivalSchedule, CoalTransaction, ActiveTab } from '../types/coal';
 import { calculateDuration, getOperationalTimeline } from '../utils/timeUtils';
@@ -58,6 +60,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const [isAlertExpanded, setIsAlertExpanded] = useState<boolean>(true);
   const [historyFilter, setHistoryFilter] = useState<'ALL' | 'COMPLETED' | 'IN_PROGRESS'>('ALL');
   const [historySearch, setHistorySearch] = useState('');
+  const [historySupplierFilter, setHistorySupplierFilter] = useState('');
+  const [historyPage, setHistoryPage] = useState<number>(1);
+  const HISTORY_PAGE_SIZE = 8;
 
   const [kpiScope, setKpiScope] = useState<'TODAY' | 'ALL'>('ALL');
 
@@ -271,8 +276,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     };
   }, [completedToday]);
 
-  // Filter list for the history section
-  const filteredHistoryTrucks = useMemo(() => {
+  // Base filter (status & search) before supplier dropdown filter
+  const baseFilteredHistoryTrucks = useMemo(() => {
     return transactions.filter((t) => {
       if (historyFilter === 'COMPLETED' && t.status !== 'COMPLETED') return false;
       if (historyFilter === 'IN_PROGRESS' && (t.status === 'COMPLETED' || t.status === 'REJECTED')) return false;
@@ -290,6 +295,81 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       );
     });
   }, [transactions, schedules, historyFilter, historySearch]);
+
+  // Registered supplier dropdown options (dari PO, Jadwal, dan Transaksi terdaftar)
+  const registeredHistorySuppliers = useMemo(() => {
+    const countMap = new Map<string, number>();
+
+    purchaseOrders.forEach((po) => {
+      const name = (po.supplierName || '').trim();
+      if (name && !countMap.has(name)) {
+        countMap.set(name, 0);
+      }
+    });
+
+    schedules.forEach((sch) => {
+      const name = (sch.supplierName || '').trim();
+      if (name && !countMap.has(name)) {
+        countMap.set(name, 0);
+      }
+    });
+
+    transactions.forEach((t) => {
+      const name = (t.supplierName || '').trim();
+      if (name && !countMap.has(name)) {
+        countMap.set(name, 0);
+      }
+    });
+
+    baseFilteredHistoryTrucks.forEach((t) => {
+      const name = (t.supplierName || '').trim();
+      if (name) {
+        countMap.set(name, (countMap.get(name) || 0) + 1);
+      }
+    });
+
+    return Array.from(countMap.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'id'));
+  }, [purchaseOrders, schedules, transactions, baseFilteredHistoryTrucks]);
+
+  // Filter list for the history section (termasuk filter dropdown supplier)
+  const filteredHistoryTrucks = useMemo(() => {
+    if (!historySupplierFilter) return baseFilteredHistoryTrucks;
+    return baseFilteredHistoryTrucks.filter(
+      (t) => (t.supplierName || '').trim() === historySupplierFilter
+    );
+  }, [baseFilteredHistoryTrucks, historySupplierFilter]);
+
+  // Reset pagination to page 1 when filters change
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [historyFilter, historySearch, historySupplierFilter]);
+
+  const totalHistoryPages = Math.max(1, Math.ceil(filteredHistoryTrucks.length / HISTORY_PAGE_SIZE));
+  const safeHistoryPage = Math.min(historyPage, totalHistoryPages);
+  const historyStartIdx = (safeHistoryPage - 1) * HISTORY_PAGE_SIZE;
+  const paginatedHistoryTrucks = useMemo(
+    () => filteredHistoryTrucks.slice(historyStartIdx, historyStartIdx + HISTORY_PAGE_SIZE),
+    [filteredHistoryTrucks, historyStartIdx]
+  );
+
+  // Build compact page list for pagination controls
+  const historyPageNumbers = useMemo(() => {
+    const pages: (number | 'ellipsis')[] = [];
+    if (totalHistoryPages <= 7) {
+      for (let i = 1; i <= totalHistoryPages; i++) pages.push(i);
+      return pages;
+    }
+    pages.push(1);
+    if (safeHistoryPage > 3) pages.push('ellipsis');
+    const start = Math.max(2, safeHistoryPage - 1);
+    const end = Math.min(totalHistoryPages - 1, safeHistoryPage + 1);
+    for (let i = start; i <= end; i++) pages.push(i);
+    if (safeHistoryPage < totalHistoryPages - 2) pages.push('ellipsis');
+    pages.push(totalHistoryPages);
+    return pages;
+  }, [totalHistoryPages, safeHistoryPage]);
 
   const formatMinutesBadge = (minutes: number) => {
     if (minutes <= 0) return '-';
@@ -835,37 +915,99 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         </div>
 
         {/* Subheader Durasi Waktu Riwayat Bongkar langsung di atas daftar kartu armada */}
-        <div className="flex items-center justify-between gap-2 pt-1 border-b border-slate-200 pb-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 border-b border-slate-200 pb-3">
           <div className="flex items-center gap-2">
             <Warehouse className="w-5 h-5 text-amber-600" />
             <h3 className="text-base font-bold text-slate-900 tracking-wide">
               Durasi Waktu Riwayat Bongkar
             </h3>
           </div>
-          <span className="text-xs font-mono-num font-bold text-slate-600">
-            {filteredHistoryTrucks.length} Armada
-          </span>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Dropdown Filter Nama Supplier Terdaftar */}
+            <div className="relative flex items-center">
+              <Building2 className="w-3.5 h-3.5 text-amber-600 absolute left-2.5 pointer-events-none" />
+              <select
+                aria-label="Filter Nama Supplier Terdaftar"
+                value={historySupplierFilter}
+                onChange={(e) => setHistorySupplierFilter(e.target.value)}
+                className="appearance-none bg-white border border-slate-300 hover:border-amber-500 focus:border-amber-500 focus:outline-none rounded-lg pl-8 pr-8 py-1.5 text-xs font-semibold text-slate-800 shadow-xs cursor-pointer transition-colors min-w-[220px] max-w-[300px]"
+              >
+                <option value="">
+                  Semua Supplier ({baseFilteredHistoryTrucks.length} Armada)
+                </option>
+                {registeredHistorySuppliers.map((sup) => (
+                  <option key={sup.name} value={sup.name}>
+                    {sup.name} ({sup.count} Armada)
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 pointer-events-none" />
+            </div>
+
+            {historySupplierFilter && (
+              <button
+                type="button"
+                onClick={() => setHistorySupplierFilter('')}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 transition-colors cursor-pointer"
+                title="Reset filter supplier"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Reset</span>
+              </button>
+            )}
+
+            <span className="px-2.5 py-1.5 rounded-lg bg-slate-100 border border-slate-300 text-xs font-mono-num font-bold text-slate-700">
+              {filteredHistoryTrucks.length} Armada
+            </span>
+          </div>
         </div>
 
-        {/* List of Vehicles with Expandable Sub-Process Breakdown */}
+        {/* List of Vehicles with Expandable Sub-Process Breakdown (8 data per halaman + Pagination) */}
         {filteredHistoryTrucks.length === 0 ? (
           <div className="text-center py-10 bg-slate-950/40 border border-dashed border-slate-800 rounded-xl text-slate-500">
             <Clock className="w-10 h-10 mx-auto mb-2 text-slate-600" />
-            <p className="text-sm font-semibold text-slate-300">Belum ada riwayat transaksi armada pada sistem.</p>
-            <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-              Saat armada baru dicatat di Pos Security (Gate In & Gate Out) dan melewati stasiun timbang, data waktu proses dan breakdown tiap tahapan akan otomatis tercatat dan tersaji di sini secara real-time.
-            </p>
-            <button
-              type="button"
-              onClick={() => onNavigate('security')}
-              className="mt-4 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-sm"
-            >
-              Mulai Input Armada di Pos Security
-            </button>
+            {transactions.length === 0 ? (
+              <>
+                <p className="text-sm font-semibold text-slate-300">Belum ada riwayat transaksi armada pada sistem.</p>
+                <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                  Saat armada baru dicatat di Pos Security (Gate In & Gate Out) dan melewati stasiun timbang, data waktu proses dan breakdown tiap tahapan akan otomatis tercatat dan tersaji di sini secara real-time.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('security')}
+                  className="mt-4 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer"
+                >
+                  Mulai Input Armada di Pos Security
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-semibold text-slate-700">
+                  Tidak ada data riwayat bongkar yang sesuai dengan filter.
+                </p>
+                <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                  {historySupplierFilter
+                    ? `Belum ada transaksi bongkar untuk supplier "${historySupplierFilter}" pada filter saat ini.`
+                    : 'Coba ubah kata kunci pencarian atau pilih status/supplier lain.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHistorySupplierFilter('');
+                    setHistorySearch('');
+                    setHistoryFilter('ALL');
+                  }}
+                  className="mt-4 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-xs cursor-pointer"
+                >
+                  Reset Semua Filter
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredHistoryTrucks.map((tx) => {
+            {paginatedHistoryTrucks.map((tx) => {
               const { checkpoints, totalDuration } = getOperationalTimeline(tx);
               const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
               const isExpanded = expandedTxId === tx.id;
@@ -1139,6 +1281,77 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 </div>
               );
             })}
+
+            {/* Pagination Footer Bar (8 Data per Halaman) */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 mt-2 border-t border-slate-200">
+              <div className="text-xs text-slate-600 font-mono-num">
+                Menampilkan{' '}
+                <strong className="text-slate-900 font-bold">
+                  {historyStartIdx + 1}–{Math.min(historyStartIdx + HISTORY_PAGE_SIZE, filteredHistoryTrucks.length)}
+                </strong>{' '}
+                dari{' '}
+                <strong className="text-slate-900 font-bold">{filteredHistoryTrucks.length}</strong> Armada
+                <span className="text-slate-400 mx-1.5">·</span>
+                <span>
+                  Halaman <strong className="text-slate-900 font-bold">{safeHistoryPage}</strong> / {totalHistoryPages}
+                </span>
+              </div>
+
+              {totalHistoryPages > 1 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={safeHistoryPage <= 1}
+                    onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                      safeHistoryPage <= 1
+                        ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                        : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 cursor-pointer shadow-xs'
+                    }`}
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>Sebelumnya</span>
+                  </button>
+
+                  <div className="flex items-center gap-1">
+                    {historyPageNumbers.map((pageItem, idx) =>
+                      pageItem === 'ellipsis' ? (
+                        <span key={`ellipsis-${idx}`} className="px-1.5 text-xs text-slate-500 select-none">
+                          …
+                        </span>
+                      ) : (
+                        <button
+                          key={pageItem}
+                          type="button"
+                          onClick={() => setHistoryPage(pageItem)}
+                          className={`min-w-[32px] h-8 px-2 rounded-lg text-xs font-mono-num font-bold border transition-colors cursor-pointer ${
+                            pageItem === safeHistoryPage
+                              ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-xs'
+                              : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                          }`}
+                        >
+                          {pageItem}
+                        </button>
+                      )
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={safeHistoryPage >= totalHistoryPages}
+                    onClick={() => setHistoryPage((p) => Math.min(totalHistoryPages, p + 1))}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                      safeHistoryPage >= totalHistoryPages
+                        ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                        : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 cursor-pointer shadow-xs'
+                    }`}
+                  >
+                    <span>Berikutnya</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
