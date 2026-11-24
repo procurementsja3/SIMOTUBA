@@ -596,20 +596,32 @@ export const CoalReceivingHistoricalSection: React.FC<CoalReceivingHistoricalSec
             </div>
 
             {/* Dynamic Bar Chart Visualization */}
-            <div className="pt-4 pb-2 overflow-x-auto">
-              <div className="min-w-[420px] flex items-end gap-3 sm:gap-4 h-52 px-2 border-b border-slate-300">
-                {historicalData.map((item) => {
+            <div className="pt-20 pb-2 overflow-x-auto">
+              <div className="min-w-[420px] flex items-end gap-3 sm:gap-4 h-52 px-4 border-b border-slate-300">
+                {historicalData.map((item, idx) => {
                   const actualHeightPct = Math.round((item.nettoTons / maxTon) * 100);
                   const targetHeightPct = Math.round((item.targetTons / maxTon) * 100);
                   const isAchieved = item.targetTons > 0 ? item.nettoTons >= item.targetTons * 0.95 : true;
+                  const tooltipHorizontalAlign =
+                    historicalData.length > 1 && idx === 0
+                      ? 'left-0'
+                      : historicalData.length > 1 && idx === historicalData.length - 1
+                        ? 'right-0'
+                        : 'left-1/2 -translate-x-1/2';
 
                   return (
                     <div key={item.id} className="flex-1 flex flex-col items-center justify-end h-full group relative">
                       {/* Tooltip on hover */}
-                      <div className="absolute -top-12 z-20 hidden group-hover:flex flex-col items-center pointer-events-none whitespace-nowrap bg-slate-900 border border-slate-700 text-white text-[11px] px-2.5 py-1.5 rounded-lg shadow-xl">
-                        <span className="font-bold text-amber-400">{item.label}</span>
-                        <span className="font-mono-num">{item.nettoTons.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ton ({item.truckCount} rit)</span>
-                        <span className="text-[10px] text-slate-300">Target: {item.targetTons.toLocaleString('id-ID')} Ton</span>
+                      <div
+                        className={`absolute bottom-full mb-2 ${tooltipHorizontalAlign} z-30 hidden group-hover:flex flex-col items-center pointer-events-none whitespace-nowrap bg-white border border-slate-300 text-slate-900 text-[11px] px-3 py-1.5 rounded-lg shadow-lg ring-1 ring-slate-900/5 space-y-0.5`}
+                      >
+                        <span className="font-bold text-amber-800 leading-tight">{item.label}</span>
+                        <span className="font-mono-num font-bold text-slate-900 leading-tight">
+                          {item.nettoTons.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ton ({item.truckCount} rit)
+                        </span>
+                        <span className="text-[10px] font-medium text-slate-600 leading-tight">
+                          Target: {item.targetTons.toLocaleString('id-ID')} Ton
+                        </span>
                       </div>
 
                       {/* Dual Bar Container: Target Behind, Actual in Front */}

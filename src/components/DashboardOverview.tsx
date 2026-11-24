@@ -1616,7 +1616,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <div>
               <h3 className="text-base font-bold text-slate-900 tracking-wide flex items-center gap-2">
                 <Warehouse className="w-5 h-5 text-emerald-600" />
-                <span>Monitoring Kuota PO Batubara</span>
+                <span>Monitoring Outstanding PO Batubara</span>
               </h3>
               <p className="text-xs text-slate-600 mt-0.5">Realisasi tonase vs kontrak</p>
             </div>
