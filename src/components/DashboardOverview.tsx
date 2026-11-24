@@ -26,7 +26,8 @@ import {
   ChevronRight,
   Trash2,
   X,
-  Building2
+  Building2,
+  LayoutDashboard
 } from 'lucide-react';
 import { PurchaseOrder, ArrivalSchedule, CoalTransaction, ActiveTab } from '../types/coal';
 import { calculateDuration, getOperationalTimeline } from '../utils/timeUtils';
@@ -385,16 +386,22 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* KPI Scope Switcher Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-300 rounded-xl px-4 py-2.5 shadow-xs">
-        <div className="flex items-center gap-2 text-xs text-slate-700 font-semibold">
-          <Filter className="w-3.5 h-3.5 text-amber-600" />
-          <span>Periode Ringkasan KPI:</span>
-          <span className="text-[11px] font-normal text-slate-500 hidden sm:inline">
-            {kpiScope === 'TODAY'
-              ? `Menampilkan transaksi selesai pada tanggal ${new Date().toLocaleDateString('id-ID')}`
-              : `Menampilkan seluruh ${allCompleted.length} transaksi selesai kumulatif`}
-          </span>
+      {/* Top Dashboard Header & KPI Scope Switcher Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-300 rounded-xl px-5 py-3.5 shadow-xs">
+        <div className="space-y-1">
+          <h2 className="text-lg font-bold text-slate-900 tracking-wide flex items-center gap-2">
+            <LayoutDashboard className="w-5 h-5 text-amber-600 shrink-0" />
+            <span>DASHBOARD</span>
+          </h2>
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-700 font-semibold">
+            <Filter className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            <span>Periode Ringkasan KPI:</span>
+            <span className="text-[11px] font-normal text-slate-500">
+              {kpiScope === 'TODAY'
+                ? `Menampilkan transaksi selesai pada tanggal ${new Date().toLocaleDateString('id-ID')}`
+                : `Menampilkan seluruh ${allCompleted.length} transaksi selesai kumulatif`}
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-300 text-xs">
           <button
