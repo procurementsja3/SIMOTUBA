@@ -39,7 +39,8 @@ interface WeighbridgeOutboundProps {
     operatorName: string,
     scaleId: string,
     gateOutOfficer: string,
-    weighOutTimeIso?: string
+    weighOutTimeIso?: string,
+    weighOutNotes?: string
   ) => void;
   onOpenPrintTicket: (tx: CoalTransaction) => void;
   selectedTxId?: string;
@@ -71,6 +72,7 @@ export const WeighbridgeOutbound: React.FC<WeighbridgeOutboundProps> = ({
   const [weightError, setWeightError] = useState<string | null>(null);
   const [weighOutDate, setWeighOutDate] = useState<string>(() => getLocalDateStr());
   const [weighOutTime, setWeighOutTime] = useState<string>(() => getLocalTimeStr());
+  const [weighOutNotes, setWeighOutNotes] = useState('');
   const [timeError, setTimeError] = useState<string | null>(null);
 
   const lastAppliedSelectedTxIdRef = React.useRef<string | undefined>(undefined);
@@ -105,8 +107,12 @@ export const WeighbridgeOutbound: React.FC<WeighbridgeOutboundProps> = ({
     setOperatorError(false);
     setWeightError(null);
     setGateOutOfficer('');
+    setWeighOutNotes('');
     setTimeError(null);
     const currentTx = eligibleTrucksRef.current.find((t) => t.id === activeTxId);
+    if (currentTx?.weighOutNotes) {
+      setWeighOutNotes(currentTx.weighOutNotes);
+    }
     if (currentTx?.weighOutTime) {
       const parsed = new Date(currentTx.weighOutTime);
       if (!Number.isNaN(parsed.getTime())) {
@@ -180,11 +186,13 @@ export const WeighbridgeOutbound: React.FC<WeighbridgeOutboundProps> = ({
       operatorName.trim(),
       scaleId,
       gateOutOfficer.trim() || 'Petugas Pos Security',
-      dateObj.toISOString()
+      dateObj.toISOString(),
+      weighOutNotes.trim() || undefined
     );
     setCapturedTare(null);
     setOperatorName('');
     setGateOutOfficer('');
+    setWeighOutNotes('');
     setOperatorError(false);
     setWeightError(null);
     setTimeError(null);
@@ -552,6 +560,18 @@ export const WeighbridgeOutbound: React.FC<WeighbridgeOutboundProps> = ({
                           value={gateOutOfficer}
                           onChange={(e) => setGateOutOfficer(e.target.value)}
                           className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] text-slate-300 font-semibold mb-1">
+                          Catatan Timbang Keluar <span className="text-slate-500 font-normal">(Opsional)</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Tambahkan catatan timbang keluar / kondisi susut bila ada..."
+                          value={weighOutNotes}
+                          onChange={(e) => setWeighOutNotes(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-400 rounded px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
                         />
                       </div>
                     </div>

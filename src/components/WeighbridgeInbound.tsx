@@ -38,7 +38,8 @@ interface WeighbridgeInboundProps {
     grossWeight: number,
     operatorName: string,
     scaleId: string,
-    weighInTimeIso?: string
+    weighInTimeIso?: string,
+    weighInNotes?: string
   ) => void;
   selectedTxId?: string;
 }
@@ -66,6 +67,7 @@ export const WeighbridgeInbound: React.FC<WeighbridgeInboundProps> = ({
   const [operatorError, setOperatorError] = useState(false);
   const [weighInDate, setWeighInDate] = useState<string>(() => getLocalDateStr());
   const [weighInTime, setWeighInTime] = useState<string>(() => getLocalTimeStr());
+  const [weighInNotes, setWeighInNotes] = useState('');
   const [timeError, setTimeError] = useState<string | null>(null);
 
   const lastAppliedSelectedTxIdRef = React.useRef<string | undefined>(undefined);
@@ -100,8 +102,12 @@ export const WeighbridgeInbound: React.FC<WeighbridgeInboundProps> = ({
   React.useEffect(() => {
     setOperatorName('');
     setOperatorError(false);
+    setWeighInNotes('');
     setTimeError(null);
     const currentTx = eligibleTrucksRef.current.find((t) => t.id === activeTxId);
+    if (currentTx?.weighInNotes) {
+      setWeighInNotes(currentTx.weighInNotes);
+    }
     if (currentTx?.weighInTime) {
       const parsed = new Date(currentTx.weighInTime);
       if (!Number.isNaN(parsed.getTime())) {
@@ -148,9 +154,17 @@ export const WeighbridgeInbound: React.FC<WeighbridgeInboundProps> = ({
       operatorInputRef.current?.focus();
       return;
     }
-    onCompleteWeighIn(activeTx.id, capturedGross, operatorName.trim(), scaleId, dateObj.toISOString());
+    onCompleteWeighIn(
+      activeTx.id,
+      capturedGross,
+      operatorName.trim(),
+      scaleId,
+      dateObj.toISOString(),
+      weighInNotes.trim() || undefined
+    );
     setCapturedGross(null);
     setOperatorName('');
+    setWeighInNotes('');
     setOperatorError(false);
     setTimeError(null);
   };
@@ -544,8 +558,8 @@ export const WeighbridgeInbound: React.FC<WeighbridgeInboundProps> = ({
                       </div>
                     </div>
 
-                    <div className="pt-2 border-t border-emerald-200 text-xs">
-                      <div className="max-w-md">
+                    <div className="pt-2 border-t border-emerald-200 text-xs grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
                         <label className="block text-[11px] text-slate-800 font-semibold mb-1">
                           Operator Timbang Masuk <span className="text-rose-600">*</span>
                         </label>
@@ -572,6 +586,18 @@ export const WeighbridgeInbound: React.FC<WeighbridgeInboundProps> = ({
                             <span>Nama operator timbang masuk wajib diisikan sebelum menyimpan.</span>
                           </p>
                         )}
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-slate-800 font-semibold mb-1">
+                          Catatan Timbang Masuk <span className="text-slate-500 font-normal">(Opsional)</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Tambahkan catatan timbang masuk bila ada..."
+                          value={weighInNotes}
+                          onChange={(e) => setWeighInNotes(e.target.value)}
+                          className="w-full bg-white border border-slate-300 focus:border-amber-500 rounded px-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none transition-colors"
+                        />
                       </div>
                     </div>
 

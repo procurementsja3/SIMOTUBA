@@ -1604,7 +1604,8 @@ export default function App() {
     grossWeight: number,
     operatorName: string,
     scaleId: string,
-    customWeighInTime?: string
+    customWeighInTime?: string,
+    weighInNotes?: string
   ) => {
     if (!requireRole('TIMBANG_MASUK')) return;
 
@@ -1619,6 +1620,7 @@ export default function App() {
       targetTx.suratJalanWeight > 0 ? grossWeight - targetTx.suratJalanWeight : 0;
 
     const nowIso = new Date().toISOString();
+    const trimmedNotes = weighInNotes?.trim();
     const updated = transactions.map((t) =>
       t.id === txId
         ? {
@@ -1628,6 +1630,7 @@ export default function App() {
             weighInOperator: operatorName,
             weighInScaleId: scaleId,
             initialDiscrepancy,
+            ...(trimmedNotes ? { weighInNotes: trimmedNotes } : {}),
             status: 'BONGKAR' as const,
             updatedAt: nowIso,
           }
@@ -1847,7 +1850,8 @@ export default function App() {
     operatorName: string,
     scaleId: string,
     gateOutOfficer: string,
-    customWeighOutTime?: string
+    customWeighOutTime?: string,
+    weighOutNotes?: string
   ) => {
     if (!requireRole('TIMBANG_KELUAR')) return;
 
@@ -1872,6 +1876,7 @@ export default function App() {
       parsedCustomTime && !Number.isNaN(parsedCustomTime.getTime())
         ? parsedCustomTime.toISOString()
         : nowIso;
+    const trimmedNotes = weighOutNotes?.trim();
 
     const updated = transactions.map((t) =>
       t.id === txId
@@ -1887,6 +1892,7 @@ export default function App() {
             shrinkagePercentage: metrics.shrinkagePercentage,
             toleranceStatus: metrics.toleranceStatus,
             claimPenaltyKg: metrics.claimPenaltyKg,
+            ...(trimmedNotes ? { weighOutNotes: trimmedNotes } : {}),
             gateOutOfficer,
             status: 'GATE_OUT' as const,
             updatedAt: nowIso,
@@ -1948,7 +1954,8 @@ export default function App() {
   const handleCompleteGateOut = async (
     txId: string,
     officerName: string,
-    customGateOutTime?: string
+    customGateOutTime?: string,
+    gateOutNotes?: string
   ) => {
     if (!requireRole('SECURITY')) return;
 
@@ -1961,10 +1968,12 @@ export default function App() {
       parsedCustomTime && !Number.isNaN(parsedCustomTime.getTime())
         ? parsedCustomTime.toISOString()
         : nowIso;
+    const trimmedNotes = gateOutNotes?.trim();
     const finalTx: CoalTransaction = {
       ...existingTx,
       gateOutTime,
       gateOutOfficer: officerName,
+      ...(trimmedNotes ? { gateOutNotes: trimmedNotes } : {}),
       status: 'COMPLETED' as const,
       updatedAt: nowIso,
     };

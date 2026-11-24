@@ -169,6 +169,7 @@ export interface CoalTransaction {
   weighInOperator?: string;
   weighInScaleId?: string;
   initialDiscrepancy?: number; // kg
+  weighInNotes?: string;
 
   // QC & Sampling
   qcTime?: string;
@@ -200,10 +201,12 @@ export interface CoalTransaction {
   shrinkagePercentage: number; // %
   toleranceStatus?: 'WITHIN_TOLERANCE' | 'EXCESS_SHRINKAGE' | 'SURPLUS';
   claimPenaltyKg?: number;
+  weighOutNotes?: string;
 
   // Pos Security (Gate Out)
   gateOutTime?: string;
   gateOutOfficer?: string;
+  gateOutNotes?: string;
 
   // Overall Status
   status: CoalStatus;

@@ -7,6 +7,7 @@ import {
   FlaskConical, 
   Warehouse, 
   Truck, 
+  FileText,
   X
 } from 'lucide-react';
 import { CoalTransaction } from '../types/coal';
@@ -59,6 +60,23 @@ export const TransactionTimelineModal: React.FC<TransactionTimelineModalProps> =
         return <Truck className="w-4 h-4 text-emerald-500" />;
       default:
         return <Clock className="w-4 h-4 text-slate-400" />;
+    }
+  };
+
+  const getStageInputNote = (id: string): string | undefined => {
+    switch (id) {
+      case 'gate-in':
+        return transaction.securityNotes?.trim() || undefined;
+      case 'weigh-in':
+        return transaction.weighInNotes?.trim() || undefined;
+      case 'unloading':
+        return transaction.unloadingNotes?.trim() || undefined;
+      case 'weigh-out':
+        return transaction.weighOutNotes?.trim() || undefined;
+      case 'gate-out':
+        return transaction.gateOutNotes?.trim() || undefined;
+      default:
+        return undefined;
     }
   };
 
@@ -224,6 +242,18 @@ export const TransactionTimelineModal: React.FC<TransactionTimelineModalProps> =
                         </span>
                       )}
                     </div>
+
+                    {getStageInputNote(step.id) && (
+                      <div className="mt-2 pt-2 border-t border-slate-200">
+                        <div className="px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-slate-800 leading-snug break-words">
+                          <span className="font-bold text-amber-900 inline-flex items-center gap-1 mr-1">
+                            <FileText className="w-3 h-3 text-amber-600 shrink-0" />
+                            Catatan:
+                          </span>
+                          <span>{getStageInputNote(step.id)}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -282,6 +312,17 @@ export const TransactionTimelineModal: React.FC<TransactionTimelineModalProps> =
               <div className="pt-2 border-t border-slate-200 text-[11px] text-slate-600 flex items-center justify-between">
                 <span>Status: <strong className="text-amber-800">Menunggu Update PIC QC (Estimasi Lab ≥24 Jam)</strong></span>
                 <span className="font-mono text-slate-500">Independen</span>
+              </div>
+            )}
+            {transaction.qcDecisionNotes?.trim() && (
+              <div className="pt-2 border-t border-slate-200">
+                <div className="px-2.5 py-1.5 rounded-lg bg-purple-50 border border-purple-200 text-[11px] text-slate-800 leading-snug break-words">
+                  <span className="font-bold text-purple-900 inline-flex items-center gap-1 mr-1">
+                    <FileText className="w-3 h-3 text-purple-600 shrink-0" />
+                    Catatan QC:
+                  </span>
+                  <span>{transaction.qcDecisionNotes.trim()}</span>
+                </div>
               </div>
             )}
           </div>

@@ -30,7 +30,7 @@ interface PosSecurityProps {
   onCheckInTruck: (newTx: CoalTransaction) => void;
   onAdvanceToWeighIn: (txId: string) => void;
   preselectedSchedule?: ArrivalSchedule | null;
-  onCompleteGateOut?: (txId: string, officerName: string, gateOutTimeIso?: string) => void;
+  onCompleteGateOut?: (txId: string, officerName: string, gateOutTimeIso?: string, gateOutNotes?: string) => void;
   onOpenTicket?: (tx: CoalTransaction) => void;
   onUpdateSchedule?: (updatedSch: ArrivalSchedule) => void;
   onDeleteSchedule?: (schId: string) => void;
@@ -116,6 +116,7 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
   const [gateOutOperatorErrors, setGateOutOperatorErrors] = useState<Record<string, boolean>>({});
   const [gateOutDates, setGateOutDates] = useState<Record<string, string>>({});
   const [gateOutTimes, setGateOutTimes] = useState<Record<string, string>>({});
+  const [gateOutNotesMap, setGateOutNotesMap] = useState<Record<string, string>>({});
   const [editingSchedule, setEditingSchedule] = useState<ArrivalSchedule | null>(null);
   const [editScheduleForm, setEditScheduleForm] = useState<{
     etaDate: string;
@@ -1452,6 +1453,21 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                             <span>Nama operator posko wajib diisi sebelum Checkout Gerbang.</span>
                           </p>
                         )}
+                        <div className="mt-2.5">
+                          <label className="text-[11px] font-bold text-slate-700 mb-1 block">
+                            CATATAN POSKO GATE OUT <span className="text-slate-500 font-normal">(Opsional)</span>
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Tambahkan catatan pemeriksaan keluar gerbang bila ada..."
+                            value={gateOutNotesMap[tx.id] ?? ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setGateOutNotesMap((prev) => ({ ...prev, [tx.id]: val }));
+                            }}
+                            className="w-full bg-white border border-slate-300 focus:border-emerald-500 rounded-lg px-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none transition-colors"
+                          />
+                        </div>
                       </div>
 
                       {/* Actions */}
@@ -1495,7 +1511,8 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                             }
 
                             if (onCompleteGateOut) {
-                              onCompleteGateOut(tx.id, operatorName, dateObj.toISOString());
+                              const noteVal = (gateOutNotesMap[tx.id] || '').trim();
+                              onCompleteGateOut(tx.id, operatorName, dateObj.toISOString(), noteVal || undefined);
                             }
                             setGateOutOperators((prev) => {
                               const next = { ...prev };
@@ -1513,6 +1530,11 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                               return next;
                             });
                             setGateOutTimes((prev) => {
+                              const next = { ...prev };
+                              delete next[tx.id];
+                              return next;
+                            });
+                            setGateOutNotesMap((prev) => {
                               const next = { ...prev };
                               delete next[tx.id];
                               return next;

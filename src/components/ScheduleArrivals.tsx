@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Calendar, 
   Clock, 
@@ -10,6 +10,7 @@ import {
   Layers,
   Trash2,
   X,
+  ChevronLeft,
   ChevronRight,
   Pencil,
   FileSpreadsheet,
@@ -423,6 +424,30 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
     }
   };
 
+  // Daftar nama supplier terdaftar (dari Jadwal, PO, dan Transaksi) diurutkan alfabetis
+  const registeredSupplierOptions = useMemo(() => {
+    const countMap = new Map<string, number>();
+
+    purchaseOrders.forEach((po) => {
+      const name = (po.supplierName || '').trim();
+      if (name && !countMap.has(name)) countMap.set(name, 0);
+    });
+    transactions.forEach((tx) => {
+      const name = (tx.supplierName || '').trim();
+      if (name && !countMap.has(name)) countMap.set(name, 0);
+    });
+    schedules.forEach((sch) => {
+      const name = (sch.supplierName || '').trim();
+      if (name) {
+        countMap.set(name, (countMap.get(name) || 0) + 1);
+      }
+    });
+
+    return Array.from(countMap.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'id-ID'));
+  }, [schedules, purchaseOrders, transactions]);
+
   // Filtered schedules for table view & mobile cards
   const filteredSchedules = schedules.filter((sch) => {
     const effStatus = getEffectiveScheduleStatus(sch);
@@ -474,10 +499,10 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
       if (!truckCount.includes(q)) return false;
     }
 
-    // 8. Col Search: Nama Supplier
+    // 8. Col Filter: Nama Supplier (Dropdown Supplier Terdaftar)
     if (colSearchSupplier) {
-      const q = colSearchSupplier.toLowerCase().trim();
-      if (!sch.supplierName.toLowerCase().includes(q)) return false;
+      const selectedSup = colSearchSupplier.trim().toLowerCase();
+      if ((sch.supplierName || '').trim().toLowerCase() !== selectedSup) return false;
     }
 
     // 9. Col Search: Status Kedatangan
@@ -500,6 +525,46 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
 
     return true;
   });
+
+  // Pagination Riwayat Jadwal Pengiriman (Maksimal 15 data per halaman)
+  const SCHEDULE_PAGE_SIZE = 15;
+  const [schedulePage, setSchedulePage] = useState<number>(1);
+
+  useEffect(() => {
+    setSchedulePage(1);
+  }, [
+    statusFilter,
+    colSearchId,
+    colSearchPo,
+    colSearchEta,
+    colSearchTonnage,
+    colSearchTruck,
+    colSearchSupplier,
+    colSearchStatus,
+    colSearchRemarks,
+  ]);
+
+  const totalSchedulePages = Math.max(1, Math.ceil(filteredSchedules.length / SCHEDULE_PAGE_SIZE));
+  const safeSchedulePage = Math.min(schedulePage, totalSchedulePages);
+  const scheduleStartIdx = (safeSchedulePage - 1) * SCHEDULE_PAGE_SIZE;
+  const scheduleEndIdx = Math.min(scheduleStartIdx + SCHEDULE_PAGE_SIZE, filteredSchedules.length);
+  const paginatedSchedules = filteredSchedules.slice(scheduleStartIdx, scheduleEndIdx);
+
+  const schedulePageNumbers: (number | 'ellipsis')[] = (() => {
+    const pages: (number | 'ellipsis')[] = [];
+    if (totalSchedulePages <= 7) {
+      for (let i = 1; i <= totalSchedulePages; i++) pages.push(i);
+      return pages;
+    }
+    pages.push(1);
+    if (safeSchedulePage > 3) pages.push('ellipsis');
+    const start = Math.max(2, safeSchedulePage - 1);
+    const end = Math.min(totalSchedulePages - 1, safeSchedulePage + 1);
+    for (let i = start; i <= end; i++) pages.push(i);
+    if (safeSchedulePage < totalSchedulePages - 2) pages.push('ellipsis');
+    pages.push(totalSchedulePages);
+    return pages;
+  })();
 
   // Handle PO Change in modal
   const handlePoChange = (newPoId: string) => {
@@ -1201,7 +1266,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
             Tidak ada jadwal kedatangan sesuai kriteria filter.
           </div>
         ) : (
-          filteredSchedules.map((sch) => {
+          paginatedSchedules.map((sch) => {
             const poAllSchedules = schedules.filter((s) => s.poId === sch.poId);
             const poIndex = poAllSchedules.findIndex((s) => s.id === sch.id);
             const poTotal = poAllSchedules.length;
@@ -1412,28 +1477,25 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                   </div>
                 </th>
 
-                {/* 6. Nama Supplier */}
+                {/* 6. Nama Supplier (Dropdown Supplier Terdaftar) */}
                 <th className="px-1.5 py-2">
-                  <div className="relative flex items-center">
-                    <Search className="w-3 h-3 text-slate-400 absolute left-1.5 pointer-events-none" />
-                    <input
-                      type="text"
-                      value={colSearchSupplier}
-                      onChange={(e) => setColSearchSupplier(e.target.value)}
-                      placeholder="Supplier..."
-                      className="w-full pl-6 pr-5 py-1 text-[11px] font-normal normal-case rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
-                    />
-                    {colSearchSupplier && (
-                      <button
-                        type="button"
-                        onClick={() => setColSearchSupplier('')}
-                        className="absolute right-1 text-slate-400 hover:text-slate-600 text-xs px-0.5 cursor-pointer"
-                        title="Hapus filter supplier"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
+                  <select
+                    value={colSearchSupplier}
+                    onChange={(e) => setColSearchSupplier(e.target.value)}
+                    title="Filter berdasarkan Nama Supplier terdaftar"
+                    className={`w-full px-1.5 py-1 text-[11px] normal-case rounded border focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs cursor-pointer ${
+                      colSearchSupplier
+                        ? 'border-amber-500 bg-amber-50/50 text-slate-900 font-semibold'
+                        : 'border-slate-300 bg-white text-slate-800 font-normal'
+                    }`}
+                  >
+                    <option value="">Semua Supplier ({registeredSupplierOptions.length})</option>
+                    {registeredSupplierOptions.map((sup) => (
+                      <option key={sup.name} value={sup.name}>
+                        {sup.name} ({sup.count})
+                      </option>
+                    ))}
+                  </select>
                 </th>
 
                 {/* 7. Status Kedatangan */}
@@ -1528,7 +1590,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredSchedules.map((sch) => {
+                paginatedSchedules.map((sch) => {
                   const badge = getScheduleStatusBadge(sch);
                   const linkedTx = getLinkedTransaction(sch);
 
@@ -1642,6 +1704,79 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Pagination Bar Riwayat Jadwal Pengiriman (Maksimal 15 data per halaman) */}
+      {filteredSchedules.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 bg-white border border-slate-300 rounded-xl shadow-xs text-xs">
+          <div className="text-slate-600 font-mono-num">
+            Menampilkan{' '}
+            <strong className="text-slate-900 font-bold">
+              {scheduleStartIdx + 1}–{scheduleEndIdx}
+            </strong>{' '}
+            dari{' '}
+            <strong className="text-slate-900 font-bold">{filteredSchedules.length}</strong> Data Jadwal
+            <span className="text-slate-400 mx-1.5">·</span>
+            <span>
+              Halaman <strong className="text-slate-900 font-bold">{safeSchedulePage}</strong> / {totalSchedulePages}
+            </span>
+          </div>
+
+          {totalSchedulePages > 1 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                disabled={safeSchedulePage <= 1}
+                onClick={() => setSchedulePage((p) => Math.max(1, p - 1))}
+                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                  safeSchedulePage <= 1
+                    ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                    : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 cursor-pointer shadow-2xs'
+                }`}
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Sebelumnya</span>
+              </button>
+
+              <div className="flex items-center gap-1">
+                {schedulePageNumbers.map((pageItem, idx) =>
+                  pageItem === 'ellipsis' ? (
+                    <span key={`sch-ellipsis-${idx}`} className="px-1.5 text-xs text-slate-500 select-none">
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={pageItem}
+                      type="button"
+                      onClick={() => setSchedulePage(pageItem)}
+                      className={`min-w-[32px] h-8 px-2 rounded-lg text-xs font-mono-num font-bold border transition-colors cursor-pointer ${
+                        pageItem === safeSchedulePage
+                          ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-2xs'
+                          : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                      }`}
+                    >
+                      {pageItem}
+                    </button>
+                  )
+                )}
+              </div>
+
+              <button
+                type="button"
+                disabled={safeSchedulePage >= totalSchedulePages}
+                onClick={() => setSchedulePage((p) => Math.min(totalSchedulePages, p + 1))}
+                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                  safeSchedulePage >= totalSchedulePages
+                    ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                    : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 cursor-pointer shadow-2xs'
+                }`}
+              >
+                <span>Berikutnya</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Full-Screen Modal Add Schedule (Supports Single & Multi/Batch up to 100 data per PO) */}
       {isModalOpen && (
