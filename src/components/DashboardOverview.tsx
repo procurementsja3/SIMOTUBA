@@ -1007,280 +1007,338 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
         ) : (
           <div className="space-y-3">
-            {paginatedHistoryTrucks.map((tx) => {
-              const { checkpoints, totalDuration } = getOperationalTimeline(tx);
-              const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
-              const isExpanded = expandedTxId === tx.id;
-              const isCompleted = tx.status === 'COMPLETED';
+            <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-xs">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-100 text-slate-700 border-b-2 border-slate-300 font-bold uppercase text-[11px] tracking-wide">
+                  <tr>
+                    <th className="py-3 px-3 whitespace-nowrap">Nopol</th>
+                    <th className="py-3 px-3 whitespace-nowrap">RIT</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Status</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Nama Driver</th>
+                    <th className="py-3 px-3 whitespace-nowrap">PO / Supplier</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Tgl Kedatangan</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Timeline</th>
+                    <th className="py-3 px-3 text-right whitespace-nowrap">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {paginatedHistoryTrucks.map((tx) => {
+                    const { checkpoints, totalDuration } = getOperationalTimeline(tx);
+                    const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
+                    const isExpanded = expandedTxId === tx.id;
+                    const isCompleted = tx.status === 'COMPLETED';
+                    const formattedArrivalDate = tx.gateInTime
+                      ? new Date(tx.gateInTime).toLocaleDateString('id-ID', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric',
+                        })
+                      : '-';
 
-              return (
-                <div
-                  key={tx.id}
-                  className={`border rounded-xl transition-all ${
-                    isCompleted
-                      ? 'bg-slate-950/80 border-slate-800 hover:border-slate-700'
-                      : 'bg-slate-950/50 border-amber-500/30 hover:border-amber-500/50'
-                  }`}
-                >
-                  {/* Vehicle Summary Bar */}
-                  <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <span className="font-mono text-base font-black text-amber-900 bg-amber-100 px-3 py-1 rounded-lg border border-amber-300 tracking-wider">
-                        {tx.vehiclePlate}
-                      </span>
-                      <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-sky-50 text-sky-800 border border-sky-300">
-                        {ritInfo.ritCategory}
-                      </span>
-                      <span className={`px-2.5 py-0.5 rounded text-[11px] font-bold ${
-                        isCompleted
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                          : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                      }`}>
-                        {isCompleted ? 'SELESAI (SUDAH KELUAR GERBANG)' : `SEDANG PROSES (${tx.status})`}
-                      </span>
-                      <div className="text-xs text-slate-700 flex flex-wrap items-center gap-1.5">
-                        <strong className="text-slate-900 font-bold">{tx.driverName}</strong>
-                        <span className="text-slate-400">·</span>
-                        <span>PO: <strong className="font-mono font-bold text-amber-800">{tx.poNumber}</strong> ({tx.supplierName})</span>
-                        <span className="text-slate-400">·</span>
-                        <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-300 font-semibold text-[11px]">
-                          Tgl Kedatangan: <strong className="text-slate-950 font-mono-num font-bold">{tx.gateInTime ? new Date(tx.gateInTime).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}</strong>
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Turnaround Time Display & Expand Button */}
-                    <div className="flex items-center justify-between md:justify-end gap-3 pt-2 md:pt-0 border-t md:border-t-0 border-slate-300">
-                      <div className="text-left md:text-right font-mono-num">
-                        <div className="text-[11px] text-slate-600 font-medium">Total Durasi Operasional:</div>
-                        <div className="text-sm font-black text-amber-900 flex items-center md:justify-end gap-1.5">
-                          <Clock className="w-3.5 h-3.5 text-amber-700" />
-                          <span>{totalDuration.text}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => toggleExpand(tx.id)}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition-colors"
+                    return (
+                      <React.Fragment key={tx.id}>
+                        <tr
+                          className={`transition-colors ${
+                            isExpanded
+                              ? 'bg-amber-50/40'
+                              : isCompleted
+                                ? 'bg-white hover:bg-slate-50'
+                                : 'bg-amber-50/20 hover:bg-amber-50/50'
+                          }`}
                         >
-                          <span>{isExpanded ? 'Tutup Rincian' : 'Rincian Breakdown'}</span>
-                          {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                        </button>
+                          {/* 1. NOPOL */}
+                          <td className="py-3 px-3 align-middle whitespace-nowrap">
+                            <span className="inline-block font-mono text-sm font-black text-amber-900 bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300 tracking-wider">
+                              {tx.vehiclePlate}
+                            </span>
+                          </td>
 
-                        <button
-                          type="button"
-                          onClick={() => setSelectedTimelineTx(tx)}
-                          className="p-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 rounded-lg border border-slate-700 transition-colors"
-                          title="Buka Timeline Grafis Lengkap"
-                        >
-                          <History className="w-4 h-4" />
-                        </button>
+                          {/* 2. RIT */}
+                          <td className="py-3 px-3 align-middle whitespace-nowrap">
+                            <span className="inline-block text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-sky-50 text-sky-800 border border-sky-300">
+                              {ritInfo.ritCategory}
+                            </span>
+                          </td>
 
-                        {onOpenTicket && isCompleted && (
-                          <button
-                            type="button"
-                            onClick={() => onOpenTicket(tx)}
-                            className="p-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg transition-colors font-bold cursor-pointer"
-                            title="Cetak Dokumen Berita Acara In Out"
-                          >
-                            <Printer className="w-4 h-4" />
-                          </button>
+                          {/* 3. STATUS */}
+                          <td className="py-3 px-3 align-middle whitespace-nowrap">
+                            <span
+                              className={`inline-block px-2.5 py-1 rounded text-[11px] font-bold ${
+                                isCompleted
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              }`}
+                            >
+                              {isCompleted ? 'SELESAI (SUDAH KELUAR GERBANG)' : `SEDANG PROSES (${tx.status})`}
+                            </span>
+                          </td>
+
+                          {/* 4. NAMA DRIVER */}
+                          <td className="py-3 px-3 align-middle whitespace-nowrap">
+                            <span className="text-xs font-bold text-slate-900">
+                              {tx.driverName || '-'}
+                            </span>
+                          </td>
+
+                          {/* 5. PO / SUPPLIER */}
+                          <td className="py-3 px-3 align-middle">
+                            <div className="font-mono text-xs font-bold text-amber-800 whitespace-nowrap">
+                              {tx.poNumber}
+                            </div>
+                            <div className="text-[11px] text-slate-600 font-medium leading-snug max-w-[240px] truncate" title={tx.supplierName}>
+                              {tx.supplierName}
+                            </div>
+                          </td>
+
+                          {/* 6. TGL KEDATANGAN */}
+                          <td className="py-3 px-3 align-middle whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-900 px-2.5 py-1 rounded border border-slate-300 font-mono-num font-bold text-xs">
+                              {formattedArrivalDate}
+                            </span>
+                          </td>
+
+                          {/* 7. TIMELINE */}
+                          <td className="py-3 px-3 align-middle whitespace-nowrap font-mono-num">
+                            <div className="text-[10px] text-slate-500 font-sans font-medium leading-tight">
+                              Total Durasi Operasional
+                            </div>
+                            <div className="text-xs font-black text-amber-900 flex items-center gap-1.5 mt-0.5">
+                              <Clock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                              <span>{totalDuration.text}</span>
+                            </div>
+                          </td>
+
+                          {/* 8. AKSI */}
+                          <td className="py-3 px-3 align-middle text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => toggleExpand(tx.id)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition-colors cursor-pointer whitespace-nowrap"
+                              >
+                                <span>{isExpanded ? 'Tutup Rincian' : 'Rincian Breakdown'}</span>
+                                {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setSelectedTimelineTx(tx)}
+                                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 rounded-lg border border-slate-700 transition-colors cursor-pointer"
+                                title="Buka Timeline Grafis Lengkap"
+                              >
+                                <History className="w-4 h-4" />
+                              </button>
+
+                              {onOpenTicket && isCompleted && (
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenTicket(tx)}
+                                  className="p-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg transition-colors font-bold cursor-pointer"
+                                  title="Cetak Dokumen Berita Acara In Out"
+                                >
+                                  <Printer className="w-4 h-4" />
+                                </button>
+                              )}
+
+                              {onDeleteTransaction && (
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingTx(tx)}
+                                  className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg transition-colors font-bold cursor-pointer"
+                                  title="Hapus Riwayat Bongkar"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Expandable Sub-Process Breakdown View */}
+                        {isExpanded && (
+                          <tr className="bg-slate-50/90">
+                            <td colSpan={8} className="p-4 border-t border-slate-200">
+                              <div className="space-y-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs text-slate-600">
+                                  <span className="font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1">
+                                    <Activity className="w-3.5 h-3.5 text-amber-600" />
+                                    Rincian Durasi Per Masing-Masing Sub-Proses:
+                                  </span>
+                                  <span className="font-mono-num text-slate-700">
+                                    Tgl Kedatangan: <strong className="text-slate-950 font-bold">{formattedArrivalDate}</strong> · Masuk: <strong className="text-slate-950">{checkpoints[0]?.formattedTime} WIB</strong> ➔ Keluar: <strong className="text-slate-950">{checkpoints[checkpoints.length - 1]?.formattedTime !== '-' ? checkpoints[checkpoints.length - 1]?.formattedTime + ' WIB' : 'Masih di dalam'}</strong>
+                                  </span>
+                                </div>
+
+                                {/* 5-Stage Operational Sub-Process Breakdown Grid (Diluar QC-PA) */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2.5 text-xs">
+                                  {/* Sub-Proses 1: Gate In */}
+                                  <div className="p-3 rounded-lg bg-white border border-slate-300 space-y-1 shadow-xs">
+                                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-900">
+                                      <span className="flex items-center gap-1">
+                                        <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
+                                        1. Gate In Posko
+                                      </span>
+                                      <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">Done</span>
+                                    </div>
+                                    <div className="text-[10px] font-mono-num text-slate-700">
+                                      Tgl: <strong className="text-slate-950 font-bold">{formattedArrivalDate}</strong>
+                                    </div>
+                                    <div className="text-[11px] font-mono-num text-slate-700">
+                                      Waktu: <strong className="text-slate-950 font-bold">{checkpoints[0]?.formattedTime} WIB</strong>
+                                    </div>
+                                    <div className="text-[10px] text-slate-600 truncate">
+                                      Petugas: {tx.securityOfficer || 'Security Posko'}
+                                    </div>
+                                    <div className="text-[10px] text-slate-600 truncate">
+                                      SJ: {tx.suratJalanNumber}
+                                    </div>
+                                  </div>
+
+                                  {/* Sub-Proses 2: Timbang Masuk */}
+                                  <div className="p-3 rounded-lg bg-white border border-slate-300 space-y-1 shadow-xs">
+                                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-900">
+                                      <span className="flex items-center gap-1">
+                                        <Scale className="w-3.5 h-3.5 text-blue-600" />
+                                        2. Timbang In (Gross)
+                                      </span>
+                                      {checkpoints[1]?.durationFromPrevious && (
+                                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                          {checkpoints[1]?.durationFromPrevious}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[11px] font-mono-num text-slate-700">
+                                      Waktu: <strong className="text-slate-950 font-bold">{checkpoints[1]?.formattedTime} {checkpoints[1]?.formattedTime !== '-' ? 'WIB' : ''}</strong>
+                                    </div>
+                                    <div className="text-[10px] text-slate-600 truncate">
+                                      Gross: {tx.grossWeight > 0 ? `${(tx.grossWeight / 1000).toFixed(2)} Ton` : '-'}
+                                    </div>
+                                    <div className="text-[10px] text-slate-600 truncate">
+                                      Operator: {tx.weighInOperator || 'JT-01'}
+                                    </div>
+                                  </div>
+
+                                  {/* Sub-Proses 3: Bongkar Muatan */}
+                                  <div className="p-3 rounded-lg bg-white border border-slate-300 space-y-1 shadow-xs">
+                                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-900">
+                                      <span className="flex items-center gap-1">
+                                        <Warehouse className="w-3.5 h-3.5 text-sky-600" />
+                                        3. Bongkar Muatan
+                                      </span>
+                                      {checkpoints[2]?.durationFromPrevious && (
+                                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                          {checkpoints[2]?.durationFromPrevious}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[11px] font-mono-num text-slate-700">
+                                      Waktu: <strong className="text-slate-950 font-bold">{checkpoints[2]?.formattedTime} {checkpoints[2]?.formattedTime !== '-' ? 'WIB' : ''}</strong>
+                                    </div>
+                                    <div className="text-[10px] text-slate-600 truncate">
+                                      Lokasi: {tx.unloadingStockpile || tx.assignedStockpile || 'Stockpile Utama'}
+                                    </div>
+                                    <div className="text-[10px] text-slate-600 truncate">
+                                      Tally: {tx.unloadingChecker || '-'}
+                                    </div>
+                                  </div>
+
+                                  {/* Sub-Proses 4: Timbang Keluar */}
+                                  <div className="p-3 rounded-lg bg-white border border-slate-300 space-y-1 shadow-xs">
+                                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-900">
+                                      <span className="flex items-center gap-1">
+                                        <Scale className="w-3.5 h-3.5 text-emerald-600" />
+                                        4. Timbang Out (Tare)
+                                      </span>
+                                      {checkpoints[3]?.durationFromPrevious && (
+                                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                          {checkpoints[3]?.durationFromPrevious}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[11px] font-mono-num text-slate-700">
+                                      Waktu: <strong className="text-slate-950 font-bold">{checkpoints[3]?.formattedTime} {checkpoints[3]?.formattedTime !== '-' ? 'WIB' : ''}</strong>
+                                    </div>
+                                    <div className="text-[10px] text-slate-700 truncate font-mono">
+                                      Netto: <strong className="text-emerald-700 font-bold">{(tx.nettoTons || 0).toFixed(2)} Ton</strong>
+                                    </div>
+                                    <div className="text-[10px] text-slate-600 truncate font-mono">
+                                      Susut: {tx.shrinkagePercentage !== undefined ? `${tx.shrinkagePercentage > 0 ? '+' : ''}${tx.shrinkagePercentage.toFixed(2)}%` : '-'}
+                                    </div>
+                                  </div>
+
+                                  {/* Sub-Proses 5: Gate Out Posko */}
+                                  <div className="p-3 rounded-lg bg-white border border-slate-300 space-y-1 shadow-xs">
+                                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-900">
+                                      <span className="flex items-center gap-1">
+                                        <Truck className="w-3.5 h-3.5 text-rose-600" />
+                                        5. Gate Out Posko
+                                      </span>
+                                      {checkpoints[4]?.durationFromPrevious && (
+                                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                          {checkpoints[4]?.durationFromPrevious}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[11px] font-mono-num text-slate-700">
+                                      Waktu: <strong className="text-slate-950 font-bold">{checkpoints[4]?.formattedTime} {checkpoints[4]?.formattedTime !== '-' ? 'WIB' : ''}</strong>
+                                    </div>
+                                    <div className="text-[10px] text-slate-600 truncate">
+                                      Petugas: {tx.gateOutOfficer || 'Pos Security Utama'}
+                                    </div>
+                                    <div className="text-[10px] font-bold text-emerald-700 truncate">
+                                      {isCompleted ? 'Resmi Keluar Gerbang' : 'Menunggu Checkout'}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Independent Post-Process QC-PA Status Strip */}
+                                <div className="p-2.5 rounded-lg bg-white border border-slate-300 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                                  <div className="flex items-center gap-2">
+                                    <FlaskConical className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                                    <span className="font-bold text-slate-900">Uji Lab QC-PA (Pasca Proses):</span>
+                                    {tx.qcTime || tx.labResults?.calorieGAR ? (
+                                      <span className="text-slate-700 font-mono">
+                                        Sample <strong className="text-slate-950">{tx.sampleId || '-'}</strong> · {tx.labResults?.calorieGAR || '-'} kcal · TM {tx.labResults?.totalMoisture !== undefined ? `${Number(tx.labResults.totalMoisture).toFixed(1)}%` : '-'} · <strong className="text-emerald-700">{tx.qcStatus || 'UPDATED'}</strong>
+                                      </span>
+                                    ) : (
+                                      <span className="text-amber-800 font-semibold">
+                                        Menunggu Update PIC QC (Estimasi Lab ≥24 Jam)
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-300">
+                                    Independen · Diluar Hitungan Jam Proses
+                                  </span>
+                                </div>
+
+                                {/* Card Footer Bar */}
+                                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 text-[11px] text-slate-600 border-t border-slate-300 font-mono-num">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span>ID Transaksi: <strong className="text-slate-900 font-bold">{tx.id}</strong></span>
+                                    {tx.ticketNumber && <span>· Tiket: <strong className="text-slate-900 font-bold">{tx.ticketNumber}</strong></span>}
+                                    <span>· Tgl Kedatangan: <strong className="text-amber-900 font-bold">{formattedArrivalDate}</strong></span>
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedTimelineTx(tx)}
+                                      className="text-amber-700 hover:text-amber-900 font-bold underline font-sans text-xs cursor-pointer"
+                                    >
+                                      Buka Modal Timeline Grafis Lengkap →
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
                         )}
-
-                        {onDeleteTransaction && (
-                          <button
-                            type="button"
-                            onClick={() => setDeletingTx(tx)}
-                            className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg transition-colors font-bold cursor-pointer"
-                            title="Hapus Riwayat Bongkar"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Expandable Sub-Process Breakdown View */}
-                  {isExpanded && (
-                    <div className="px-4 pb-4 pt-1 border-t border-slate-300 bg-slate-50/80 rounded-b-xl space-y-3">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs text-slate-600 pt-2">
-                        <span className="font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1">
-                          <Activity className="w-3.5 h-3.5 text-amber-600" />
-                          Rincian Durasi Per Masing-Masing Sub-Proses:
-                        </span>
-                        <span className="font-mono-num text-slate-700">
-                          Tgl Kedatangan: <strong className="text-slate-950 font-bold">{tx.gateInTime ? new Date(tx.gateInTime).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}</strong> · Masuk: <strong className="text-slate-950">{checkpoints[0]?.formattedTime} WIB</strong> ➔ Keluar: <strong className="text-slate-950">{checkpoints[checkpoints.length - 1]?.formattedTime !== '-' ? checkpoints[checkpoints.length - 1]?.formattedTime + ' WIB' : 'Masih di dalam'}</strong>
-                        </span>
-                      </div>
-
-                      {/* 5-Stage Operational Sub-Process Breakdown Grid (Diluar QC-PA) */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2.5 text-xs">
-                        {/* Sub-Proses 1: Gate In */}
-                        <div className="p-3 rounded-lg bg-white border border-slate-300 space-y-1 shadow-xs">
-                          <div className="flex items-center justify-between text-[11px] font-bold text-slate-900">
-                            <span className="flex items-center gap-1">
-                              <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
-                              1. Gate In Posko
-                            </span>
-                            <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">Done</span>
-                          </div>
-                          <div className="text-[10px] font-mono-num text-slate-700">
-                            Tgl: <strong className="text-slate-950 font-bold">{tx.gateInTime ? new Date(tx.gateInTime).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}</strong>
-                          </div>
-                          <div className="text-[11px] font-mono-num text-slate-700">
-                            Waktu: <strong className="text-slate-950 font-bold">{checkpoints[0]?.formattedTime} WIB</strong>
-                          </div>
-                          <div className="text-[10px] text-slate-600 truncate">
-                            Petugas: {tx.securityOfficer || 'Security Posko'}
-                          </div>
-                          <div className="text-[10px] text-slate-600 truncate">
-                            SJ: {tx.suratJalanNumber}
-                          </div>
-                        </div>
-
-                        {/* Sub-Proses 2: Timbang Masuk */}
-                        <div className="p-3 rounded-lg bg-white border border-slate-300 space-y-1 shadow-xs">
-                          <div className="flex items-center justify-between text-[11px] font-bold text-slate-900">
-                            <span className="flex items-center gap-1">
-                              <Scale className="w-3.5 h-3.5 text-blue-600" />
-                              2. Timbang In (Gross)
-                            </span>
-                            {checkpoints[1]?.durationFromPrevious && (
-                              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                                {checkpoints[1]?.durationFromPrevious}
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[11px] font-mono-num text-slate-700">
-                            Waktu: <strong className="text-slate-950 font-bold">{checkpoints[1]?.formattedTime} {checkpoints[1]?.formattedTime !== '-' ? 'WIB' : ''}</strong>
-                          </div>
-                          <div className="text-[10px] text-slate-600 truncate">
-                            Gross: {tx.grossWeight > 0 ? `${(tx.grossWeight / 1000).toFixed(2)} Ton` : '-'}
-                          </div>
-                          <div className="text-[10px] text-slate-600 truncate">
-                            Operator: {tx.weighInOperator || 'JT-01'}
-                          </div>
-                        </div>
-
-                        {/* Sub-Proses 3: Bongkar Muatan */}
-                        <div className="p-3 rounded-lg bg-white border border-slate-300 space-y-1 shadow-xs">
-                          <div className="flex items-center justify-between text-[11px] font-bold text-slate-900">
-                            <span className="flex items-center gap-1">
-                              <Warehouse className="w-3.5 h-3.5 text-sky-600" />
-                              3. Bongkar Muatan
-                            </span>
-                            {checkpoints[2]?.durationFromPrevious && (
-                              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                                {checkpoints[2]?.durationFromPrevious}
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[11px] font-mono-num text-slate-700">
-                            Waktu: <strong className="text-slate-950 font-bold">{checkpoints[2]?.formattedTime} {checkpoints[2]?.formattedTime !== '-' ? 'WIB' : ''}</strong>
-                          </div>
-                          <div className="text-[10px] text-slate-600 truncate">
-                            Lokasi: {tx.unloadingStockpile || tx.assignedStockpile || 'Stockpile Utama'}
-                          </div>
-                          <div className="text-[10px] text-slate-600 truncate">
-                            Tally: {tx.unloadingChecker || '-'}
-                          </div>
-                        </div>
-
-                        {/* Sub-Proses 4: Timbang Keluar */}
-                        <div className="p-3 rounded-lg bg-white border border-slate-300 space-y-1 shadow-xs">
-                          <div className="flex items-center justify-between text-[11px] font-bold text-slate-900">
-                            <span className="flex items-center gap-1">
-                              <Scale className="w-3.5 h-3.5 text-emerald-600" />
-                              4. Timbang Out (Tare)
-                            </span>
-                            {checkpoints[3]?.durationFromPrevious && (
-                              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                                {checkpoints[3]?.durationFromPrevious}
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[11px] font-mono-num text-slate-700">
-                            Waktu: <strong className="text-slate-950 font-bold">{checkpoints[3]?.formattedTime} {checkpoints[3]?.formattedTime !== '-' ? 'WIB' : ''}</strong>
-                          </div>
-                          <div className="text-[10px] text-slate-700 truncate font-mono">
-                            Netto: <strong className="text-emerald-700 font-bold">{(tx.nettoTons || 0).toFixed(2)} Ton</strong>
-                          </div>
-                          <div className="text-[10px] text-slate-600 truncate font-mono">
-                            Susut: {tx.shrinkagePercentage !== undefined ? `${tx.shrinkagePercentage > 0 ? '+' : ''}${tx.shrinkagePercentage.toFixed(2)}%` : '-'}
-                          </div>
-                        </div>
-
-                        {/* Sub-Proses 5: Gate Out Posko */}
-                        <div className="p-3 rounded-lg bg-white border border-slate-300 space-y-1 shadow-xs">
-                          <div className="flex items-center justify-between text-[11px] font-bold text-slate-900">
-                            <span className="flex items-center gap-1">
-                              <Truck className="w-3.5 h-3.5 text-rose-600" />
-                              5. Gate Out Posko
-                            </span>
-                            {checkpoints[4]?.durationFromPrevious && (
-                              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                                {checkpoints[4]?.durationFromPrevious}
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[11px] font-mono-num text-slate-700">
-                            Waktu: <strong className="text-slate-950 font-bold">{checkpoints[4]?.formattedTime} {checkpoints[4]?.formattedTime !== '-' ? 'WIB' : ''}</strong>
-                          </div>
-                          <div className="text-[10px] text-slate-600 truncate">
-                            Petugas: {tx.gateOutOfficer || 'Pos Security Utama'}
-                          </div>
-                          <div className="text-[10px] font-bold text-emerald-700 truncate">
-                            {isCompleted ? 'Resmi Keluar Gerbang' : 'Menunggu Checkout'}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Independent Post-Process QC-PA Status Strip */}
-                      <div className="p-2.5 rounded-lg bg-white border border-slate-300 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                        <div className="flex items-center gap-2">
-                          <FlaskConical className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                          <span className="font-bold text-slate-900">Uji Lab QC-PA (Pasca Proses):</span>
-                          {tx.qcTime || tx.labResults?.calorieGAR ? (
-                            <span className="text-slate-700 font-mono">
-                              Sample <strong className="text-slate-950">{tx.sampleId || '-'}</strong> · {tx.labResults?.calorieGAR || '-'} kcal · TM {tx.labResults?.totalMoisture !== undefined ? `${Number(tx.labResults.totalMoisture).toFixed(1)}%` : '-'} · <strong className="text-emerald-700">{tx.qcStatus || 'UPDATED'}</strong>
-                            </span>
-                          ) : (
-                            <span className="text-amber-800 font-semibold">
-                              Menunggu Update PIC QC (Estimasi Lab ≥24 Jam)
-                            </span>
-                          )}
-                        </div>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-300">
-                          Independen · Diluar Hitungan Jam Proses
-                        </span>
-                      </div>
-
-                      {/* Card Footer Bar */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 text-[11px] text-slate-600 border-t border-slate-300 font-mono-num">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span>ID Transaksi: <strong className="text-slate-900 font-bold">{tx.id}</strong></span>
-                          {tx.ticketNumber && <span>· Tiket: <strong className="text-slate-900 font-bold">{tx.ticketNumber}</strong></span>}
-                          <span>· Tgl Kedatangan: <strong className="text-amber-900 font-bold">{tx.gateInTime ? new Date(tx.gateInTime).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}</strong></span>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedTimelineTx(tx)}
-                            className="text-amber-700 hover:text-amber-900 font-bold underline font-sans text-xs cursor-pointer"
-                          >
-                            Buka Modal Timeline Grafis Lengkap →
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
 
             {/* Pagination Footer Bar (8 Data per Halaman) */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 mt-2 border-t border-slate-200">
