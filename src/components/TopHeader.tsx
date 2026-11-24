@@ -36,8 +36,9 @@ const TAB_TITLES: Record<ActiveTab, { section: string; title: string }> = {
   unloading: { section: 'Alur Operasional Penerimaan', title: 'Bongkar Muatan' },
   'weigh-out': { section: 'Alur Operasional Penerimaan', title: 'Timbang Keluar (Tare & Netto)' },
   qc: { section: 'Uji Lab Independen', title: 'QC-PA (Update Lab ≥24 Jam · Diluar Alur)' },
-  transactions: { section: 'Laporan', title: 'Riwayat Operasional Batubara' },
+  transactions: { section: 'Laporan', title: 'Riwayat Operasional Penerimaan Batubara' },
   googlesheet: { section: 'Database & Integrasi', title: 'Database Google Sheets (PO s/d PA)' },
+  'coal-outgoing': { section: 'Daily Pengeluaran Operational Batubara', title: 'Operasional Pengeluaran Batubara' },
 };
 
 export const TopHeader: React.FC<TopHeaderProps> = ({

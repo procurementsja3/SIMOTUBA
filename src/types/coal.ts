@@ -8,7 +8,8 @@ export type ActiveTab =
   | 'unloading'
   | 'weigh-out'
   | 'transactions'
-  | 'googlesheet';
+  | 'googlesheet'
+  | 'coal-outgoing';
 
 export type UserRole =
   | 'ADMIN'
@@ -228,4 +229,21 @@ export interface GoogleSheetConfig {
   lastSyncTime?: string;
   syncStatus: 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR';
   lastErrorMessage?: string;
+}
+
+export interface CoalOutgoingRecord {
+  id: string;
+  date: string;             // YYYY-MM-DD
+  time?: string;            // HH:mm
+  shift: 'SHIFT 1' | 'SHIFT 2' | 'SHIFT 3';
+  destinationUnit: string;  // e.g. Boiler 1, Boiler 2, Produksi
+  sourceStockpile: string;  // e.g. Stockpile Utama, Stockpile A
+  quantityKg: number;       // Pengeluaran dalam Kg
+  quantityTons: number;     // Pengeluaran dalam Ton (quantityKg / 1000)
+  equipmentUsed?: string;   // e.g. Wheel Loader, Conveyor, Dump Truck
+  operatorName: string;
+  supervisorName?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
 }

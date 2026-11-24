@@ -4,6 +4,7 @@ import {
   CoalTransaction,
   GoogleSheetConfig,
   AuditLogEntry,
+  CoalOutgoingRecord,
 } from '../types/coal';
 import {
   INITIAL_PURCHASE_ORDERS,
@@ -18,6 +19,7 @@ const STORAGE_KEYS = {
   TRANSACTIONS: 'coal_monitor_transactions_v2',
   SHEET_CONFIG: 'coal_monitor_sheet_config_v2',
   AUDIT_LOGS: 'coal_monitor_audit_logs_v1',
+  COAL_OUTGOING: 'coal_monitor_outgoing_v1',
   CLEARED_DUMMY_FLAG: 'coal_monitor_cleared_dummy_v2_done',
   SYNC_STATE: 'coal_monitor_cloud_sync_state_v1',
 };
@@ -487,10 +489,27 @@ export const storageService = {
     }
   },
 
+  getCoalOutgoing(): CoalOutgoingRecord[] {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.COAL_OUTGOING);
+      if (!data) return [];
+      const parsed = JSON.parse(data);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error('Failed reading coal outgoing records from storage:', e);
+      return [];
+    }
+  },
+
+  saveCoalOutgoing(records: CoalOutgoingRecord[]): void {
+    localStorage.setItem(STORAGE_KEYS.COAL_OUTGOING, JSON.stringify(records));
+  },
+
   clearAllData(): void {
     this.savePurchaseOrders([]);
     this.saveSchedules([]);
     this.saveTransactions([]);
+    this.saveCoalOutgoing([]);
     this.clearSyncState();
   },
 
@@ -498,16 +517,18 @@ export const storageService = {
     this.savePurchaseOrders(INITIAL_PURCHASE_ORDERS);
     this.saveSchedules(INITIAL_SCHEDULES);
     this.saveTransactions(INITIAL_TRANSACTIONS);
+    this.saveCoalOutgoing([]);
     this.clearSyncState();
   },
 
   exportFullBackupJSON(): string {
     const payload = {
-      version: '2.0',
+      version: '2.1',
       exportedAt: new Date().toISOString(),
       purchaseOrders: this.getPurchaseOrders(),
       schedules: this.getSchedules(),
       transactions: this.getTransactions(),
+      coalOutgoing: this.getCoalOutgoing(),
       sheetConfig: this.getSheetConfig(),
       auditLogs: this.getAuditLogs(),
     };
@@ -525,6 +546,9 @@ export const storageService = {
       }
       if (Array.isArray(parsed.transactions)) {
         this.saveTransactions(parsed.transactions);
+      }
+      if (Array.isArray(parsed.coalOutgoing)) {
+        this.saveCoalOutgoing(parsed.coalOutgoing);
       }
       if (parsed.sheetConfig) {
         this.saveSheetConfig(parsed.sheetConfig);

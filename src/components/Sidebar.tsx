@@ -14,7 +14,8 @@ import {
   ChevronLeft,
   Menu,
   X,
-  History
+  History,
+  Flame
 } from 'lucide-react';
 import { ActiveTab } from '../types/coal';
 
@@ -63,6 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     operations: true,
     qc_independent: true,
     reports: true,
+    daily_outgoing: true,
   });
 
   const toggleSection = (sectionId: string) => {
@@ -156,7 +158,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         {
           id: 'transactions',
-          label: 'Riwayat Operasional Batubara',
+          label: 'Riwayat Operasional Penerimaan Batubara',
           sublabel: 'Log cetak slip & ekspor CSV',
           icon: History,
         },
@@ -165,6 +167,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: 'Database Google Sheets',
           sublabel: 'Database PO s/d QC-PA',
           icon: FileSpreadsheet,
+        },
+      ],
+    },
+    {
+      id: 'daily_outgoing',
+      title: 'Daily Pengeluaran Operational Batubara',
+      items: [
+        {
+          id: 'coal-outgoing',
+          label: 'Operasional Pengeluaran Batubara',
+          sublabel: 'Catat & pantau pemakaian harian',
+          icon: Flame,
         },
       ],
     },
@@ -241,18 +255,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <button
                     type="button"
                     onClick={() => toggleSection(section.id)}
-                    className="w-full flex items-center justify-between px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 transition-colors rounded hover:bg-slate-900/60 group"
+                    className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 transition-colors rounded hover:bg-slate-900/60 group cursor-pointer"
                   >
-                    <span className="flex items-center gap-1.5 truncate">
+                    <span className="flex items-center gap-1.5 leading-snug">
                       <span>{section.title}</span>
                       {section.badgeTotal && section.badgeTotal > 0 ? (
-                        <span className="px-1.5 py-0.2 text-[10px] bg-amber-500/20 text-amber-300 rounded-full font-bold border border-amber-500/30">
+                        <span className="px-1.5 py-0.2 text-[10px] bg-amber-500/20 text-amber-300 rounded-full font-bold border border-amber-500/30 shrink-0">
                           {section.badgeTotal}
                         </span>
                       ) : null}
                     </span>
 
-                    <span className="text-slate-500 group-hover:text-slate-300">
+                    <span className="text-slate-500 group-hover:text-slate-300 shrink-0">
                       {isOpen ? (
                         <ChevronDown className="w-3.5 h-3.5" />
                       ) : (
@@ -262,11 +276,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </button>
                 ) : (
                   /* Divider line when sidebar is collapsed */
-                  <div className="w-full h-px bg-slate-800/80 my-2" />
+                  section.items.length > 0 ? <div className="w-full h-px bg-slate-800/80 my-2" /> : null
                 )}
 
                 {/* Section Items (Toggled by Section State or Always visible if collapsed) */}
-                {(isOpen || isCollapsed) && (
+                {(isOpen || isCollapsed) && section.items.length > 0 && (
                   <div className="space-y-1">
                     {section.items.map((item) => {
                       const isActive = activeTab === item.id;
@@ -300,7 +314,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           {!isCollapsed && (
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-1">
-                                <span className="truncate leading-tight">{item.label}</span>
+                                <span className="leading-snug">{item.label}</span>
                                 {item.count !== undefined && item.count > 0 && (
                                   <span
                                     className={`px-1.5 py-0.5 text-[10px] font-mono-num font-bold rounded-full border shrink-0 ${

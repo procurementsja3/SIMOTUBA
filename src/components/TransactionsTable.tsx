@@ -567,7 +567,7 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
         <div>
           <h2 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
             <FileText className="w-5 h-5 text-amber-500 shrink-0" />
-            <span className="text-slate-900">Riwayat Operasional Batubara</span>
+            <span className="text-slate-900">Riwayat Operasional Penerimaan Batubara</span>
           </h2>
           <p className="text-xs text-slate-600 mt-0.5">
             Log komprehensif data kedatangan armada, verifikasi surat jalan, rekonsiliasi timbangan jembatan, dan parameter uji mutu QC
@@ -1416,7 +1416,7 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
               <div>
                 <h3 className="text-base font-bold text-slate-900 flex flex-wrap items-center gap-2">
                   <Pencil className="w-4 h-4 text-sky-600 shrink-0" />
-                  <span>Edit Riwayat Operasional Batubara</span>
+                  <span>Edit Riwayat Operasional Penerimaan Batubara</span>
                   <span className="font-mono-num text-xs font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">
                     {editingTx.vehiclePlate} · {editingTx.ticketNumber}
                   </span>

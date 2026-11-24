@@ -12,6 +12,7 @@ import { QCLabCheck } from './components/QCLabCheck';
 import { UnloadingStockpile } from './components/UnloadingStockpile';
 import { WeighbridgeOutbound } from './components/WeighbridgeOutbound';
 import { TransactionsTable } from './components/TransactionsTable';
+import { CoalOutgoingOperational } from './components/CoalOutgoingOperational';
 import { GoogleSheetSyncModal } from './components/GoogleSheetSyncModal';
 import { PrintableTicketModal } from './components/PrintableTicketModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
@@ -39,6 +40,7 @@ import {
   PurchaseOrder,
   ArrivalSchedule,
   CoalTransaction,
+  CoalOutgoingRecord,
   GoogleSheetConfig,
   VisualQC,
   LabQCResults,
@@ -53,6 +55,7 @@ export default function App() {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [schedules, setSchedules] = useState<ArrivalSchedule[]>([]);
   const [transactions, setTransactions] = useState<CoalTransaction[]>([]);
+  const [coalOutgoing, setCoalOutgoing] = useState<CoalOutgoingRecord[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [sheetConfig, setSheetConfig] = useState<GoogleSheetConfig>({
     webhookUrl: '',
@@ -209,6 +212,7 @@ export default function App() {
     setPurchaseOrders(localPos);
     setSchedules(localSchs);
     setTransactions(localTxs);
+    setCoalOutgoing(storageService.getCoalOutgoing());
     setSheetConfig(storageService.getSheetConfig());
     setAuditLogs(storageService.getAuditLogs());
 
@@ -2139,6 +2143,7 @@ export default function App() {
     setPurchaseOrders([]);
     setSchedules([]);
     setTransactions([]);
+    setCoalOutgoing([]);
     const nextLogs = appendLocalAuditLog(auditEntry);
 
     void persistToSimotubaFirebase(
@@ -2178,11 +2183,12 @@ export default function App() {
   // Export JSON Backup
   const handleExportBackup = () => {
     const payload = {
-      version: '2.0',
+      version: '2.1',
       exportedAt: new Date().toISOString(),
       purchaseOrders,
       schedules,
       transactions,
+      coalOutgoing,
       sheetConfig,
       auditLogs,
     };
@@ -2232,6 +2238,7 @@ export default function App() {
       setPurchaseOrders(nextPos);
       setSchedules(nextSchs);
       setTransactions(nextTxs);
+      setCoalOutgoing(storageService.getCoalOutgoing());
       setSheetConfig(nextCfg);
       const nextLogs = appendLocalAuditLog(
         buildAuditEntry(
@@ -2298,6 +2305,66 @@ export default function App() {
     qc: transactions.filter((t) => (Boolean(t.weighOutTime) || t.status === 'GATE_OUT' || t.status === 'COMPLETED') && !t.qcTime).length,
     unloading: transactions.filter((t) => t.status === 'BONGKAR' || t.status === 'QC_CHECK').length,
     weighOut: transactions.filter((t) => t.status === 'TIMBANG_KELUAR').length,
+  };
+
+  // Handlers Operasional Pengeluaran Batubara Harian
+  const handleAddCoalOutgoing = (
+    data: Omit<CoalOutgoingRecord, 'id' | 'createdAt' | 'updatedAt'>
+  ) => {
+    const nowIso = new Date().toISOString();
+    const newRecord: CoalOutgoingRecord = {
+      ...data,
+      id: `OUT-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    const next = [newRecord, ...coalOutgoing];
+    setCoalOutgoing(next);
+    storageService.saveCoalOutgoing(next);
+    appendLocalAuditLog(
+      buildAuditEntry(
+        'ADD_COAL_OUTGOING',
+        'SYSTEM',
+        newRecord.id,
+        `Input Pengeluaran Batubara: ${newRecord.quantityKg.toLocaleString('id-ID')} Kg (${newRecord.quantityTons.toFixed(2)} Ton) ke ${newRecord.destinationUnit} (${newRecord.shift})`
+      )
+    );
+    showToast(
+      `Pengeluaran ${newRecord.quantityKg.toLocaleString('id-ID')} Kg ke ${newRecord.destinationUnit} berhasil dicatat.`
+    );
+  };
+
+  const handleUpdateCoalOutgoing = (updated: CoalOutgoingRecord) => {
+    const next = coalOutgoing.map((r) => (r.id === updated.id ? updated : r));
+    setCoalOutgoing(next);
+    storageService.saveCoalOutgoing(next);
+    appendLocalAuditLog(
+      buildAuditEntry(
+        'UPDATE_COAL_OUTGOING',
+        'SYSTEM',
+        updated.id,
+        `Update Pengeluaran Batubara: ${updated.quantityKg.toLocaleString('id-ID')} Kg ke ${updated.destinationUnit} (${updated.shift})`
+      )
+    );
+    showToast(`Data pengeluaran batubara (${updated.destinationUnit}) berhasil diperbarui.`);
+  };
+
+  const handleDeleteCoalOutgoing = (id: string) => {
+    const target = coalOutgoing.find((r) => r.id === id);
+    const next = coalOutgoing.filter((r) => r.id !== id);
+    setCoalOutgoing(next);
+    storageService.saveCoalOutgoing(next);
+    if (target) {
+      appendLocalAuditLog(
+        buildAuditEntry(
+          'DELETE_COAL_OUTGOING',
+          'SYSTEM',
+          id,
+          `Hapus Pengeluaran Batubara: ${target.quantityKg.toLocaleString('id-ID')} Kg (${target.destinationUnit} · ${target.date})`
+        )
+      );
+    }
+    showToast('Data pengeluaran batubara berhasil dihapus.');
   };
 
   const handleNavigateWithFilter = (tab: ActiveTab, filterId?: string) => {
@@ -2508,6 +2575,17 @@ export default function App() {
               onDisconnectSheet={handleDisconnectSheet}
               sheetsFeedback={sheetsFeedback}
               onClearSheetsFeedback={() => setSheetsFeedback(null)}
+            />
+          )}
+
+          {activeTab === 'coal-outgoing' && (
+            <CoalOutgoingOperational
+              records={coalOutgoing}
+              transactions={transactions}
+              purchaseOrders={purchaseOrders}
+              onAddRecord={handleAddCoalOutgoing}
+              onUpdateRecord={handleUpdateCoalOutgoing}
+              onDeleteRecord={handleDeleteCoalOutgoing}
             />
           )}
         </main>
