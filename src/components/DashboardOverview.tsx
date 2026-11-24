@@ -34,6 +34,7 @@ import { calculateDuration, getOperationalTimeline } from '../utils/timeUtils';
 import { resolveTransactionRitInfo } from '../utils/ritUtils';
 import { TransactionTimelineModal } from './TransactionTimelineModal';
 import { CoalReceivingHistoricalSection } from './CoalReceivingHistoricalSection';
+import { SupplierPerformanceChart } from './SupplierPerformanceChart';
 
 interface DashboardOverviewProps {
   purchaseOrders: PurchaseOrder[];
@@ -788,6 +789,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         transactions={transactions}
         purchaseOrders={purchaseOrders}
         onNavigate={onNavigate}
+      />
+
+      {/* ========================================================================= */}
+      {/* SECTION: GRAFIK PERFORMA SUPPLIER BATUBARA                                */}
+      {/* ========================================================================= */}
+      <SupplierPerformanceChart
+        transactions={transactions}
+        purchaseOrders={purchaseOrders}
       />
 
       {/* ========================================================================= */}
