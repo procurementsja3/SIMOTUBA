@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   FileText, 
   Search, 
@@ -13,11 +13,13 @@ import {
   FileSpreadsheet,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Pencil,
   Calendar,
   X,
   Save,
-  AlertTriangle
+  AlertTriangle,
+  Building2
 } from 'lucide-react';
 import { CoalTransaction, PurchaseOrder, ArrivalSchedule, ActiveTab } from '../types/coal';
 import { TransactionTimelineModal } from './TransactionTimelineModal';
@@ -87,8 +89,20 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
   onUpdateTransaction,
   canEditTransactions = true,
 }) => {
-  const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [supplierFilter, setSupplierFilter] = useState<string>('');
+  // Per-column header search filters
+  const [colDate, setColDate] = useState('');
+  const [colTicket, setColTicket] = useState('');
+  const [colPlateDriver, setColPlateDriver] = useState('');
+  const [colPoSupplier, setColPoSupplier] = useState('');
+  const [colSj, setColSj] = useState('');
+  const [colGross, setColGross] = useState('');
+  const [colTare, setColTare] = useState('');
+  const [colNetto, setColNetto] = useState('');
+  const [colSusut, setColSusut] = useState('');
+  const [colQc, setColQc] = useState('');
+  const [colRemarks, setColRemarks] = useState('');
   const [selectedTimelineTx, setSelectedTimelineTx] = useState<CoalTransaction | null>(null);
   const [editingTx, setEditingTx] = useState<CoalTransaction | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
@@ -244,31 +258,208 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
     setEditError(null);
   };
 
-  const filteredTransactions = transactions.filter((tx) => {
-    const q = searchTerm.toLowerCase().trim();
-    const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
-    const matchesSearch =
-      !q ||
-      tx.ticketNumber.toLowerCase().includes(q) ||
-      tx.vehiclePlate.toLowerCase().includes(q) ||
-      tx.driverName.toLowerCase().includes(q) ||
-      tx.poNumber.toLowerCase().includes(q) ||
-      tx.supplierName.toLowerCase().includes(q) ||
-      tx.suratJalanNumber.toLowerCase().includes(q) ||
-      ritInfo.ritCategory.toLowerCase().includes(q) ||
-      ritInfo.ritRemarks.toLowerCase().includes(q);
+  const isAnyColumnFilterActive = Boolean(
+    colDate.trim() ||
+      colTicket.trim() ||
+      colPlateDriver.trim() ||
+      colPoSupplier.trim() ||
+      colSj.trim() ||
+      colGross.trim() ||
+      colTare.trim() ||
+      colNetto.trim() ||
+      colSusut.trim() ||
+      colQc.trim() ||
+      colRemarks.trim() ||
+      statusFilter !== 'ALL'
+  );
 
-    const matchesStatus = statusFilter === 'ALL' || tx.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const handleResetColumnFilters = () => {
+    setColDate('');
+    setColTicket('');
+    setColPlateDriver('');
+    setColPoSupplier('');
+    setColSj('');
+    setColGross('');
+    setColTare('');
+    setColNetto('');
+    setColSusut('');
+    setColQc('');
+    setColRemarks('');
+    setStatusFilter('ALL');
+  };
+
+  // Base filter (status dan seluruh kolom pencarian header — sebelum dropdown supplier)
+  const baseFilteredTransactions = useMemo(() => {
+    return transactions.filter((tx) => {
+      const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
+
+      if (statusFilter !== 'ALL' && tx.status !== statusFilter) return false;
+
+      // Filter kolom: Tgl Kedatangan
+      if (colDate.trim()) {
+        const dq = colDate.toLowerCase().trim();
+        const dateStr = tx.gateInTime
+          ? new Date(tx.gateInTime).toLocaleDateString('id-ID', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+            }).toLowerCase()
+          : '';
+        const timeStr = tx.gateInTime
+          ? `${new Date(tx.gateInTime).toLocaleTimeString('id-ID', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })} wib`.toLowerCase()
+          : '';
+        const isoDate = (tx.gateInTime || '').slice(0, 10).toLowerCase();
+        if (!dateStr.includes(dq) && !timeStr.includes(dq) && !isoDate.includes(dq)) return false;
+      }
+
+      // Filter kolom: No Tiket & Antrean
+      if (colTicket.trim()) {
+        const tq = colTicket.toLowerCase().trim();
+        const combined = `${tx.ticketNumber || ''} ${tx.queueNumber || ''}`.toLowerCase();
+        if (!combined.includes(tq)) return false;
+      }
+
+      // Filter kolom: No Polisi / Driver
+      if (colPlateDriver.trim()) {
+        const pq = colPlateDriver.toLowerCase().trim();
+        const combined = `${tx.vehiclePlate || ''} ${tx.driverName || ''} ${tx.transporterName || ''}`.toLowerCase();
+        if (!combined.includes(pq)) return false;
+      }
+
+      // Filter kolom: PO & Supplier
+      if (colPoSupplier.trim()) {
+        const psq = colPoSupplier.toLowerCase().trim();
+        const combined = `${tx.poNumber || ''} ${tx.supplierName || ''}`.toLowerCase();
+        if (!combined.includes(psq)) return false;
+      }
+
+      // Filter kolom: Surat Jalan (SJ)
+      if (colSj.trim()) {
+        const sjq = colSj.toLowerCase().trim();
+        const sjTon = ((tx.suratJalanWeight || 0) / 1000).toFixed(2);
+        const combined = `${tx.suratJalanNumber || ''} ${tx.suratJalanWeight || 0} ${sjTon} ton`.toLowerCase();
+        if (!combined.includes(sjq)) return false;
+      }
+
+      // Filter kolom: Gross (kg)
+      if (colGross.trim()) {
+        const gq = colGross.toLowerCase().trim().replace(/\s+/g, '');
+        const rawGross = String(tx.grossWeight || 0);
+        const fmtGross = (tx.grossWeight || 0).toLocaleString('id-ID');
+        if (!rawGross.includes(gq) && !fmtGross.toLowerCase().includes(gq)) return false;
+      }
+
+      // Filter kolom: Tare (kg)
+      if (colTare.trim()) {
+        const trq = colTare.toLowerCase().trim().replace(/\s+/g, '');
+        const rawTare = String(tx.tareWeight || 0);
+        const fmtTare = (tx.tareWeight || 0).toLocaleString('id-ID');
+        if (!rawTare.includes(trq) && !fmtTare.toLowerCase().includes(trq)) return false;
+      }
+
+      // Filter kolom: Netto Pabrik
+      if (colNetto.trim()) {
+        const nq = colNetto.toLowerCase().trim();
+        const rawNetto = String(tx.nettoWeight || 0);
+        const fmtNetto = `${(tx.nettoWeight || 0).toLocaleString('id-ID')} kg ${(tx.nettoTons || 0).toFixed(2)} ton`.toLowerCase();
+        if (!rawNetto.includes(nq.replace(/\s+/g, '')) && !fmtNetto.includes(nq)) return false;
+      }
+
+      // Filter kolom: Susut (%)
+      if (colSusut.trim()) {
+        const sq = colSusut.toLowerCase().trim();
+        const susutStr =
+          tx.status === 'COMPLETED'
+            ? `${tx.shrinkagePercentage > 0 ? '+' : ''}${tx.shrinkagePercentage.toFixed(2)}%`
+            : '-';
+        if (!susutStr.toLowerCase().includes(sq)) return false;
+      }
+
+      // Filter kolom: Kualitas QC
+      if (colQc.trim()) {
+        const qcq = colQc.toLowerCase().trim();
+        const qcText = tx.labResults?.calorieGAR
+          ? `${tx.labResults.calorieGAR} kcal tm ${Number(tx.labResults.totalMoisture).toFixed(1)}% ${tx.qcStatus || ''} ${tx.visualAssessment?.moistureVisual || ''}`
+          : Boolean(tx.weighOutTime) || tx.status === 'GATE_OUT' || tx.status === 'COMPLETED'
+            ? 'menunggu pic qc'
+            : 'pasca timbang out';
+        if (!qcText.toLowerCase().includes(qcq)) return false;
+      }
+
+      // Filter kolom: Keterangan
+      if (colRemarks.trim()) {
+        const rq = colRemarks.toLowerCase().trim();
+        const combined = `${ritInfo.ritCategory} ${ritInfo.ritRemarks} ${tx.securityNotes || ''}`.toLowerCase();
+        if (!combined.includes(rq)) return false;
+      }
+
+      return true;
+    });
+  }, [
+    transactions,
+    schedules,
+    statusFilter,
+    colDate,
+    colTicket,
+    colPlateDriver,
+    colPoSupplier,
+    colSj,
+    colGross,
+    colTare,
+    colNetto,
+    colSusut,
+    colQc,
+    colRemarks,
+  ]);
+
+  // Daftar nama supplier yang sudah terinput (dari transaksi, PO, dan jadwal) diurutkan alfabetis
+  const registeredSupplierOptions = useMemo(() => {
+    const countMap = new Map<string, number>();
+
+    transactions.forEach((tx) => {
+      const name = (tx.supplierName || '').trim();
+      if (name && !countMap.has(name)) countMap.set(name, 0);
+    });
+    purchaseOrders.forEach((po) => {
+      const name = (po.supplierName || '').trim();
+      if (name && !countMap.has(name)) countMap.set(name, 0);
+    });
+    schedules.forEach((sch) => {
+      const name = (sch.supplierName || '').trim();
+      if (name && !countMap.has(name)) countMap.set(name, 0);
+    });
+
+    baseFilteredTransactions.forEach((tx) => {
+      const name = (tx.supplierName || '').trim();
+      if (name) {
+        countMap.set(name, (countMap.get(name) || 0) + 1);
+      }
+    });
+
+    return Array.from(countMap.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'id'));
+  }, [transactions, purchaseOrders, schedules, baseFilteredTransactions]);
+
+  const filteredTransactions = useMemo(() => {
+    if (!supplierFilter) return baseFilteredTransactions;
+    return baseFilteredTransactions.filter(
+      (tx) => (tx.supplierName || '').trim() === supplierFilter
+    );
+  }, [baseFilteredTransactions, supplierFilter]);
 
   // Sort transactions: input terbaru ditampilkan paling atas (newest first)
-  const sortedTransactions = [...filteredTransactions].sort((a, b) => {
-    const timeA = new Date(a.gateInTime || a.suratJalanDate || 0).getTime();
-    const timeB = new Date(b.gateInTime || b.suratJalanDate || 0).getTime();
-    if (timeA !== timeB) return timeB - timeA;
-    return (b.id || '').localeCompare(a.id || '');
-  });
+  const sortedTransactions = useMemo(() => {
+    return [...filteredTransactions].sort((a, b) => {
+      const timeA = new Date(a.gateInTime || a.suratJalanDate || 0).getTime();
+      const timeB = new Date(b.gateInTime || b.suratJalanDate || 0).getTime();
+      if (timeA !== timeB) return timeB - timeA;
+      return (b.id || '').localeCompare(a.id || '');
+    });
+  }, [filteredTransactions]);
 
   // Pagination Operasional Batubara (Maksimal 10 data per halaman)
   const TX_PAGE_SIZE = 10;
@@ -276,7 +467,21 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter]);
+  }, [
+    statusFilter,
+    supplierFilter,
+    colDate,
+    colTicket,
+    colPlateDriver,
+    colPoSupplier,
+    colSj,
+    colGross,
+    colTare,
+    colNetto,
+    colSusut,
+    colQc,
+    colRemarks,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(sortedTransactions.length / TX_PAGE_SIZE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
@@ -315,7 +520,7 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
       'Jam Gate Out'
     ];
 
-    const rows = filteredTransactions.map((tx) => {
+    const rows = sortedTransactions.map((tx) => {
       const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
       return [
         tx.gateInTime ? new Date(tx.gateInTime).toLocaleDateString('id-ID') : '',
@@ -358,66 +563,90 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Banner */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-white border border-slate-300 rounded-xl p-5 shadow-sm">
         <div>
-          <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-            <FileText className="w-5 h-5 text-amber-500" />
-            Riwayat Operasional Batubara
+          <h2 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            <FileText className="w-5 h-5 text-amber-500 shrink-0" />
+            <span className="text-slate-900">Riwayat Operasional Batubara</span>
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-600 mt-0.5">
             Log komprehensif data kedatangan armada, verifikasi surat jalan, rekonsiliasi timbangan jembatan, dan parameter uji mutu QC
           </p>
         </div>
+      </div>
 
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
-            <input
-              type="text"
-              placeholder="Cari Tiket / Plat / PO / Driver..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 w-52 sm:w-64"
-            />
+      {/* Filter Tabs (Kiri) + Dropdown Supplier & Ekspor CSV (Kanan) */}
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-slate-400">Status Alur:</span>
+          <div className="flex flex-wrap items-center gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
+            {[
+              { id: 'ALL', label: 'Semua' },
+              { id: 'GATE_IN', label: 'Gate In' },
+              { id: 'TIMBANG_MASUK', label: 'Timbang Gross' },
+              { id: 'BONGKAR', label: 'Bongkar' },
+              { id: 'TIMBANG_KELUAR', label: 'Timbang Tare' },
+              { id: 'GATE_OUT', label: 'Gate Out (Penyelesaian)' },
+              { id: 'COMPLETED', label: 'Selesai (Completed)' },
+            ].map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setStatusFilter(item.id)}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+                  statusFilter === item.id
+                    ? 'bg-amber-500 text-slate-950 font-bold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Dropdown Filter Nama Supplier yang Sudah Terinput */}
+          <div className="relative flex items-center">
+            <Building2 className="w-3.5 h-3.5 text-amber-600 absolute left-2.5 pointer-events-none" />
+            <select
+              aria-label="Filter Nama Supplier"
+              value={supplierFilter}
+              onChange={(e) => setSupplierFilter(e.target.value)}
+              className="appearance-none bg-white border border-slate-300 hover:border-amber-500 focus:border-amber-500 focus:outline-none rounded-lg pl-8 pr-8 py-1.5 text-xs font-semibold text-slate-800 shadow-xs cursor-pointer transition-colors min-w-[210px] max-w-[290px]"
+            >
+              <option value="">
+                Semua Supplier ({baseFilteredTransactions.length} Data)
+              </option>
+              {registeredSupplierOptions.map((sup) => (
+                <option key={sup.name} value={sup.name}>
+                  {sup.name} ({sup.count} Data)
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 pointer-events-none" />
+          </div>
+
+          {supplierFilter && (
+            <button
+              type="button"
+              onClick={() => setSupplierFilter('')}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 transition-colors cursor-pointer"
+              title="Reset filter supplier"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Reset</span>
+            </button>
+          )}
 
           <button
             type="button"
             onClick={exportToCSV}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition-colors shadow-sm"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition-colors shadow-sm cursor-pointer"
           >
             <Download className="w-3.5 h-3.5 text-emerald-400" />
             <span>Ekspor CSV / Excel</span>
           </button>
-        </div>
-      </div>
-
-      {/* Filter Tabs */}
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-slate-400">Status Alur:</span>
-        <div className="flex flex-wrap items-center gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
-          {[
-            { id: 'ALL', label: 'Semua' },
-            { id: 'GATE_IN', label: 'Gate In' },
-            { id: 'TIMBANG_MASUK', label: 'Timbang Gross' },
-            { id: 'BONGKAR', label: 'Bongkar' },
-            { id: 'TIMBANG_KELUAR', label: 'Timbang Tare' },
-            { id: 'GATE_OUT', label: 'Gate Out (Penyelesaian)' },
-            { id: 'COMPLETED', label: 'Selesai (Completed)' },
-          ].map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setStatusFilter(item.id)}
-              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                statusFilter === item.id
-                  ? 'bg-amber-500 text-slate-950 font-bold'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -588,6 +817,298 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
                 <th className="py-3 px-3">Status</th>
                 <th className="py-3 px-3">Keterangan</th>
                 <th className="py-3 px-3 text-right">Aksi</th>
+              </tr>
+              {/* Baris Pencarian di Bawah Masing-Masing Header */}
+              <tr className="bg-slate-50/90 border-t border-slate-200">
+                <th className="px-2 py-2 font-normal normal-case">
+                  <div className="relative flex items-center">
+                    <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={colDate}
+                      onChange={(e) => setColDate(e.target.value)}
+                      placeholder="Cari Tgl..."
+                      className="w-full min-w-[92px] pl-6 pr-5 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                    />
+                    {colDate && (
+                      <button
+                        type="button"
+                        onClick={() => setColDate('')}
+                        className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                        title="Hapus filter tanggal"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                <th className="px-2 py-2 font-normal normal-case">
+                  <div className="relative flex items-center">
+                    <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={colTicket}
+                      onChange={(e) => setColTicket(e.target.value)}
+                      placeholder="Cari Tiket..."
+                      className="w-full min-w-[100px] pl-6 pr-5 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                    />
+                    {colTicket && (
+                      <button
+                        type="button"
+                        onClick={() => setColTicket('')}
+                        className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                        title="Hapus filter tiket"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                <th className="px-2 py-2 font-normal normal-case">
+                  <div className="relative flex items-center">
+                    <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={colPlateDriver}
+                      onChange={(e) => setColPlateDriver(e.target.value)}
+                      placeholder="Cari Nopol..."
+                      className="w-full min-w-[105px] pl-6 pr-5 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                    />
+                    {colPlateDriver && (
+                      <button
+                        type="button"
+                        onClick={() => setColPlateDriver('')}
+                        className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                        title="Hapus filter nopol/driver"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                <th className="px-2 py-2 font-normal normal-case">
+                  <div className="relative flex items-center">
+                    <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={colPoSupplier}
+                      onChange={(e) => setColPoSupplier(e.target.value)}
+                      placeholder="Cari PO/Supp..."
+                      className="w-full min-w-[115px] pl-6 pr-5 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                    />
+                    {colPoSupplier && (
+                      <button
+                        type="button"
+                        onClick={() => setColPoSupplier('')}
+                        className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                        title="Hapus filter PO/supplier"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                <th className="px-2 py-2 font-normal normal-case">
+                  <div className="relative flex items-center">
+                    <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={colSj}
+                      onChange={(e) => setColSj(e.target.value)}
+                      placeholder="Cari No SJ..."
+                      className="w-full min-w-[95px] pl-6 pr-5 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                    />
+                    {colSj && (
+                      <button
+                        type="button"
+                        onClick={() => setColSj('')}
+                        className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                        title="Hapus filter surat jalan"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                <th className="px-2 py-2 font-normal normal-case">
+                  <div className="relative flex items-center">
+                    <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={colGross}
+                      onChange={(e) => setColGross(e.target.value)}
+                      placeholder="Gross..."
+                      className="w-full min-w-[78px] pl-6 pr-4 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                    />
+                    {colGross && (
+                      <button
+                        type="button"
+                        onClick={() => setColGross('')}
+                        className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                        title="Hapus filter gross"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                <th className="px-2 py-2 font-normal normal-case">
+                  <div className="relative flex items-center">
+                    <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={colTare}
+                      onChange={(e) => setColTare(e.target.value)}
+                      placeholder="Tare..."
+                      className="w-full min-w-[76px] pl-6 pr-4 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                    />
+                    {colTare && (
+                      <button
+                        type="button"
+                        onClick={() => setColTare('')}
+                        className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                        title="Hapus filter tare"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                <th className="px-2 py-2 font-normal normal-case">
+                  <div className="relative flex items-center">
+                    <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={colNetto}
+                      onChange={(e) => setColNetto(e.target.value)}
+                      placeholder="Netto..."
+                      className="w-full min-w-[82px] pl-6 pr-4 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                    />
+                    {colNetto && (
+                      <button
+                        type="button"
+                        onClick={() => setColNetto('')}
+                        className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                        title="Hapus filter netto"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                <th className="px-2 py-2 font-normal normal-case">
+                  <div className="relative flex items-center">
+                    <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={colSusut}
+                      onChange={(e) => setColSusut(e.target.value)}
+                      placeholder="Susut..."
+                      className="w-full min-w-[74px] pl-6 pr-4 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                    />
+                    {colSusut && (
+                      <button
+                        type="button"
+                        onClick={() => setColSusut('')}
+                        className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                        title="Hapus filter susut"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                <th className="px-2 py-2 font-normal normal-case">
+                  <div className="relative flex items-center">
+                    <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={colQc}
+                      onChange={(e) => setColQc(e.target.value)}
+                      placeholder="Cari QC..."
+                      className="w-full min-w-[90px] pl-6 pr-5 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                    />
+                    {colQc && (
+                      <button
+                        type="button"
+                        onClick={() => setColQc('')}
+                        className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                        title="Hapus filter kualitas QC"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                <th className="px-2 py-2 font-normal normal-case">
+                  <select
+                    aria-label="Filter Status Kolom"
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="w-full min-w-[96px] px-2 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs cursor-pointer"
+                  >
+                    <option value="ALL">Semua</option>
+                    <option value="GATE_IN">GATE_IN</option>
+                    <option value="TIMBANG_MASUK">TIMBANG_MASUK</option>
+                    <option value="BONGKAR">BONGKAR</option>
+                    <option value="TIMBANG_KELUAR">TIMBANG_KELUAR</option>
+                    <option value="GATE_OUT">GATE_OUT</option>
+                    <option value="COMPLETED">COMPLETED</option>
+                  </select>
+                </th>
+
+                <th className="px-2 py-2 font-normal normal-case">
+                  <div className="relative flex items-center">
+                    <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={colRemarks}
+                      onChange={(e) => setColRemarks(e.target.value)}
+                      placeholder="Cari RIT/Ket..."
+                      className="w-full min-w-[115px] pl-6 pr-5 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                    />
+                    {colRemarks && (
+                      <button
+                        type="button"
+                        onClick={() => setColRemarks('')}
+                        className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                        title="Hapus filter keterangan"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                <th className="px-2 py-2 text-right font-normal normal-case">
+                  <button
+                    type="button"
+                    disabled={!isAnyColumnFilterActive && !supplierFilter}
+                    onClick={() => {
+                      handleResetColumnFilters();
+                      setSupplierFilter('');
+                    }}
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-semibold transition-colors ${
+                      isAnyColumnFilterActive || supplierFilter
+                        ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300 cursor-pointer'
+                        : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                    }`}
+                    title="Reset seluruh kolom pencarian & filter"
+                  >
+                    <X className="w-3 h-3" />
+                    <span>Reset</span>
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/80 text-slate-300">

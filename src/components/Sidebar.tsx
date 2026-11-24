@@ -98,7 +98,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'operations',
-      title: 'Alur Operasional',
+      title: 'Alur Operasional Penerimaan',
       badgeTotal: queueCounts.security + queueCounts.weighIn + queueCounts.unloading + queueCounts.weighOut,
       items: [
         {
