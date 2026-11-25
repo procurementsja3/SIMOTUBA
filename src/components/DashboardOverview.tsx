@@ -1049,9 +1049,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-100 text-slate-700 border-b-2 border-slate-300 font-bold uppercase text-[10.5px] tracking-wide">
               <tr>
+                <th className="py-2.5 px-3 whitespace-nowrap">Tgl Kedatangan</th>
                 <th className="py-2.5 px-3 whitespace-nowrap">Rit Ke-</th>
                 <th className="py-2.5 px-3 whitespace-nowrap">Nopol &amp; No. Tiket</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">Tgl &amp; Driver</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">Driver &amp; Angkutan</th>
                 <th className="py-2.5 px-3 whitespace-nowrap">PO, Supplier &amp; SJ</th>
                 <th className="py-2.5 px-3 text-right whitespace-nowrap">Target Kuota vs Netto</th>
                 <th className="py-2.5 px-3 text-right whitespace-nowrap">Selisih &amp; Toleransi (%)</th>
@@ -1062,7 +1063,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <tbody className="divide-y divide-slate-200">
               {filteredOutOfToleranceReceivings.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-7 px-4 text-center bg-emerald-50/40">
+                  <td colSpan={9} className="py-7 px-4 text-center bg-emerald-50/40">
                     <div className="inline-flex items-center gap-2 text-emerald-800 font-bold text-xs">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                       <span>
@@ -1089,6 +1090,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                         year: 'numeric',
                       })
                     : '-';
+                  const formattedTime = tx.gateInTime
+                    ? `${new Date(tx.gateInTime).toLocaleTimeString('id-ID', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })} WIB`
+                    : '-';
 
                   return (
                     <tr
@@ -1099,6 +1106,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                           : 'bg-amber-50/35 hover:bg-amber-50/70 transition-colors'
                       }
                     >
+                      {/* 0. TGL KEDATANGAN */}
+                      <td className="py-2.5 px-3 align-middle whitespace-nowrap font-mono-num">
+                        <div className="text-xs font-bold text-slate-900 flex items-center gap-1">
+                          <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>{formattedDate}</span>
+                        </div>
+                        <div className="text-[10px] font-semibold text-amber-700 mt-0.5 pl-4">
+                          {formattedTime}
+                        </div>
+                      </td>
+
                       {/* 1. RIT KE- */}
                       <td className="py-2.5 px-3 align-middle">
                         <span className="inline-block px-2.5 py-1 rounded-lg bg-rose-100 text-rose-900 border border-rose-300 font-mono-num font-black text-xs whitespace-nowrap">
@@ -1124,18 +1142,16 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                         </div>
                       </td>
 
-                      {/* 3. TGL & DRIVER */}
+                      {/* 3. DRIVER & ANGKUTAN */}
                       <td className="py-2.5 px-3 align-middle whitespace-nowrap">
                         <div className="text-xs font-bold text-slate-900">
                           {tx.driverName || '-'}
                         </div>
-                        <div className="text-[10px] text-slate-600 font-mono-num flex items-center gap-1">
-                          <Calendar className="w-3 h-3 text-amber-600 shrink-0" />
-                          <span>{formattedDate}</span>
-                          {tx.transporterName && (
-                            <span className="text-slate-500 font-sans">· {tx.transporterName}</span>
-                          )}
-                        </div>
+                        {tx.transporterName && (
+                          <div className="text-[10px] text-slate-600 mt-0.5">
+                            {tx.transporterName}
+                          </div>
+                        )}
                       </td>
 
                       {/* 4. PO, SUPPLIER & SJ */}
