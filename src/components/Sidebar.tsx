@@ -27,6 +27,7 @@ interface SidebarProps {
   isMobileOpen: boolean;
   onCloseMobile: () => void;
   queueCounts: {
+    schedules: number;
     security: number;
     weighIn: number;
     qc: number;
@@ -95,6 +96,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: 'Jadwal Pengiriman',
           sublabel: 'Estimasi waktu tiba (ETA)',
           icon: Calendar,
+          count: queueCounts.schedules,
+          countColor: 'bg-blue-500/20 text-blue-300 border-blue-500/40',
         },
       ],
     },

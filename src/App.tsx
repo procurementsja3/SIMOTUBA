@@ -2331,8 +2331,14 @@ export default function App() {
   };
 
   // Queue Counts (QC-PA dihitung dari armada pasca Timbang Keluar yang belum diupdate PIC QC)
+  const outstandingSchedulesCount = schedules.filter(
+    (s) => s.status === 'ON_WAY' || s.status === 'SCHEDULED' || s.status === 'OVERDUE'
+  ).length;
   const queueCounts = {
-    security: transactions.filter((t) => t.status === 'GATE_IN' || t.status === 'GATE_OUT').length + schedules.filter((s) => s.status === 'ON_WAY' || s.status === 'SCHEDULED').length,
+    schedules: outstandingSchedulesCount,
+    security:
+      transactions.filter((t) => t.status === 'GATE_IN' || t.status === 'GATE_OUT').length +
+      outstandingSchedulesCount,
     weighIn: transactions.filter((t) => t.status === 'TIMBANG_MASUK').length,
     qc: transactions.filter((t) => (Boolean(t.weighOutTime) || t.status === 'GATE_OUT' || t.status === 'COMPLETED') && !t.qcTime).length,
     unloading: transactions.filter((t) => t.status === 'BONGKAR' || t.status === 'QC_CHECK').length,
