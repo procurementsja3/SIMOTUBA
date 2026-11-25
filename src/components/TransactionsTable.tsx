@@ -24,7 +24,7 @@ import {
 import { CoalTransaction, PurchaseOrder, ArrivalSchedule, ActiveTab } from '../types/coal';
 import { TransactionTimelineModal } from './TransactionTimelineModal';
 import { calculateDuration } from '../utils/timeUtils';
-import { resolveTransactionRitInfo } from '../utils/ritUtils';
+import { resolveTransactionRitInfo, getScheduleRitDetails } from '../utils/ritUtils';
 import {
   calculateToleranceMetrics,
   validateWeighOutWeights,
@@ -98,6 +98,8 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
   const [colPlateDriver, setColPlateDriver] = useState('');
   const [colPoSupplier, setColPoSupplier] = useState('');
   const [colSj, setColSj] = useState('');
+  const [colSjWeight, setColSjWeight] = useState('');
+  const [colPoWeight, setColPoWeight] = useState('');
   const [colGross, setColGross] = useState('');
   const [colTare, setColTare] = useState('');
   const [colNetto, setColNetto] = useState('');
@@ -259,12 +261,99 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
     setEditError(null);
   };
 
+  const DEFAULT_SCHEDULE_WEIGHT_KG = 30000;
+
+  const getSchedulePerDeliveryKg = (sch: ArrivalSchedule): number => {
+    const rawKg = Number(sch.estimatedTonnage || 0);
+    if (rawKg <= 0) return 0;
+    const trucks = Math.max(1, Number(sch.estimatedTruckCount || 1));
+    return Math.round(rawKg / trucks);
+  };
+
+  const getTransactionPoWeightKg = (tx: CoalTransaction): number => {
+    // 1. Cek jadwal pengiriman yang tertaut langsung (scheduleId)
+    if (tx.scheduleId) {
+      const directSchedule = schedules.find((s) => s.id === tx.scheduleId);
+      if (directSchedule) {
+        const kg = getSchedulePerDeliveryKg(directSchedule);
+        if (kg > 0) return kg;
+      }
+    }
+
+    // 2. Cocokkan jadwal pengiriman berdasarkan PO yang sama (RIT atau tanggal)
+    const normPoNum = (tx.poNumber || '').trim().toLowerCase();
+    const samePoSchedules = schedules.filter((s) => {
+      if (s.status === 'CANCELLED') return false;
+      if (tx.poId && s.poId === tx.poId) return true;
+      return Boolean(normPoNum) && (s.poNumber || '').trim().toLowerCase() === normPoNum;
+    });
+
+    if (samePoSchedules.length > 0) {
+      const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
+      const byRit = samePoSchedules.find(
+        (s) =>
+          getScheduleRitDetails(s, schedules).ritNumber === ritInfo.ritNumber &&
+          getSchedulePerDeliveryKg(s) > 0
+      );
+      if (byRit) return getSchedulePerDeliveryKg(byRit);
+
+      const txDate = (tx.scheduledDeliveryDate || tx.gateInTime || '').slice(0, 10);
+      if (txDate) {
+        const byDate = samePoSchedules.find(
+          (s) => (s.etaDateTime || '').slice(0, 10) === txDate && getSchedulePerDeliveryKg(s) > 0
+        );
+        if (byDate) return getSchedulePerDeliveryKg(byDate);
+      }
+
+      const firstValid = samePoSchedules.find((s) => getSchedulePerDeliveryKg(s) > 0);
+      if (firstValid) return getSchedulePerDeliveryKg(firstValid);
+    }
+
+    // 3. Default berat standar per jadwal pengiriman (30.000 Kg)
+    return DEFAULT_SCHEDULE_WEIGHT_KG;
+  };
+
+  const getTransactionPoTolerance = (tx: CoalTransaction) => {
+    const poWeightKg = getTransactionPoWeightKg(tx);
+    const nettoKg = Number(tx.nettoWeight || 0);
+    const matchedPo =
+      (tx.poId ? purchaseOrders.find((p) => p.id === tx.poId) : undefined) ||
+      purchaseOrders.find(
+        (p) => (p.poNumber || '').trim().toLowerCase() === (tx.poNumber || '').trim().toLowerCase()
+      );
+    const toleranceLimit = Number(matchedPo?.tolerancePercentage || 5);
+
+    if (nettoKg <= 0 || poWeightKg <= 0) {
+      return {
+        hasValue: false,
+        poWeightKg,
+        diffKg: 0,
+        pct: 0,
+        toleranceLimit,
+        isExceeded: false,
+      };
+    }
+
+    const diffKg = nettoKg - poWeightKg;
+    const pct = Number(((diffKg / poWeightKg) * 100).toFixed(2));
+    return {
+      hasValue: true,
+      poWeightKg,
+      diffKg,
+      pct,
+      toleranceLimit,
+      isExceeded: Math.abs(pct) > toleranceLimit,
+    };
+  };
+
   const isAnyColumnFilterActive = Boolean(
     colDate.trim() ||
       colTicket.trim() ||
       colPlateDriver.trim() ||
       colPoSupplier.trim() ||
       colSj.trim() ||
+      colSjWeight.trim() ||
+      colPoWeight.trim() ||
       colGross.trim() ||
       colTare.trim() ||
       colNetto.trim() ||
@@ -280,6 +369,8 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
     setColPlateDriver('');
     setColPoSupplier('');
     setColSj('');
+    setColSjWeight('');
+    setColPoWeight('');
     setColGross('');
     setColTare('');
     setColNetto('');
@@ -338,12 +429,28 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
         if (!combined.includes(psq)) return false;
       }
 
-      // Filter kolom: Surat Jalan (SJ)
+      // Filter kolom: No. Surat Jalan (SJ)
       if (colSj.trim()) {
         const sjq = colSj.toLowerCase().trim();
-        const sjTon = ((tx.suratJalanWeight || 0) / 1000).toFixed(2);
-        const combined = `${tx.suratJalanNumber || ''} ${tx.suratJalanWeight || 0} ${sjTon} ton`.toLowerCase();
-        if (!combined.includes(sjq)) return false;
+        const sjNumber = (tx.suratJalanNumber || '').toLowerCase();
+        if (!sjNumber.includes(sjq)) return false;
+      }
+
+      // Filter kolom: Berat Surat Jalan
+      if (colSjWeight.trim()) {
+        const sjwq = colSjWeight.toLowerCase().trim();
+        const rawWeight = String(tx.suratJalanWeight || 0);
+        const fmtWeight = `${(tx.suratJalanWeight || 0).toLocaleString('id-ID')} kg ${((tx.suratJalanWeight || 0) / 1000).toFixed(2)} ton`.toLowerCase();
+        if (!rawWeight.includes(sjwq.replace(/\s+/g, '')) && !fmtWeight.includes(sjwq)) return false;
+      }
+
+      // Filter kolom: Berat PO
+      if (colPoWeight.trim()) {
+        const powq = colPoWeight.toLowerCase().trim();
+        const poWeightKg = getTransactionPoWeightKg(tx);
+        const rawPoWeight = String(poWeightKg);
+        const fmtPoWeight = `${poWeightKg.toLocaleString('id-ID')} kg ${(poWeightKg / 1000).toFixed(2)} ton ${(poWeightKg / 1000).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ton`.toLowerCase();
+        if (!rawPoWeight.includes(powq.replace(/\s+/g, '')) && !fmtPoWeight.includes(powq)) return false;
       }
 
       // Filter kolom: Gross (kg)
@@ -370,14 +477,14 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
         if (!rawNetto.includes(nq.replace(/\s+/g, '')) && !fmtNetto.includes(nq)) return false;
       }
 
-      // Filter kolom: Susut (%)
+      // Filter kolom: Toleransi (%) — Berat PO vs Netto Pabrik
       if (colSusut.trim()) {
         const sq = colSusut.toLowerCase().trim();
-        const susutStr =
-          tx.status === 'COMPLETED'
-            ? `${tx.shrinkagePercentage > 0 ? '+' : ''}${tx.shrinkagePercentage.toFixed(2)}%`
-            : '-';
-        if (!susutStr.toLowerCase().includes(sq)) return false;
+        const poTol = getTransactionPoTolerance(tx);
+        const tolStr = poTol.hasValue
+          ? `${poTol.pct > 0 ? '+' : ''}${poTol.pct.toFixed(2)}%`
+          : '-';
+        if (!tolStr.toLowerCase().includes(sq)) return false;
       }
 
       // Filter kolom: Kualitas QC
@@ -402,6 +509,7 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
     });
   }, [
     transactions,
+    purchaseOrders,
     schedules,
     statusFilter,
     colDate,
@@ -409,6 +517,8 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
     colPlateDriver,
     colPoSupplier,
     colSj,
+    colSjWeight,
+    colPoWeight,
     colGross,
     colTare,
     colNetto,
@@ -477,6 +587,8 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
     colPlateDriver,
     colPoSupplier,
     colSj,
+    colSjWeight,
+    colPoWeight,
     colGross,
     colTare,
     colNetto,
@@ -505,12 +617,13 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
       'Jam Gate In',
       'No Surat Jalan',
       'Berat SJ (kg)',
+      'Berat PO (kg)',
       'Gross Timbang Masuk (kg)',
       'Tare Timbang Keluar (kg)',
       'Netto Pabrik (kg)',
       'Netto (Ton)',
-      'Susut (kg)',
-      'Persentase Susut (%)',
+      'Selisih PO vs Netto (kg)',
+      'Toleransi PO vs Netto (%)',
       'Kalori QC (kcal/kg)',
       'Total Moisture (%)',
       'Ash (%)',
@@ -524,6 +637,8 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
 
     const rows = sortedTransactions.map((tx) => {
       const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
+      const poTol = getTransactionPoTolerance(tx);
+      const poWeightKg = poTol.poWeightKg;
       return [
         tx.gateInTime ? new Date(tx.gateInTime).toLocaleDateString('id-ID') : '',
         formatDisplayTicketNumber(tx.ticketNumber),
@@ -537,12 +652,13 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
         tx.gateInTime || '',
         tx.suratJalanNumber,
         tx.suratJalanWeight || 0,
+        poWeightKg,
         tx.grossWeight || 0,
         tx.tareWeight || 0,
         tx.nettoWeight || 0,
         tx.nettoTons || 0,
-        tx.weightDifference || 0,
-        tx.shrinkagePercentage || 0,
+        poTol.hasValue ? poTol.diffKg : 0,
+        poTol.hasValue ? poTol.pct : 0,
         tx.labResults?.calorieGAR || '',
         tx.labResults?.totalMoisture || '',
         tx.labResults?.ashContent || '',
@@ -680,6 +796,8 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
               else if (tx.status === 'GATE_OUT') nextTab = 'security';
 
               const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
+              const poTolerance = getTransactionPoTolerance(tx);
+              const poWeightKg = poTolerance.poWeightKg;
               const ritBadgeClass =
                 ritInfo.ritNumber === 1
                   ? 'bg-amber-50 text-amber-900 border-amber-300'
@@ -711,6 +829,15 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
                     <div className="text-slate-400 text-[11px] truncate">
                       {tx.supplierName} · <span className="font-mono-num text-slate-300">{tx.poNumber}</span>
                     </div>
+                    <div className="text-slate-400 text-[11px] font-mono-num flex flex-wrap gap-x-3 gap-y-0.5">
+                      <span>No. SJ: <span className="text-slate-200 font-semibold">{tx.suratJalanNumber || '-'}</span></span>
+                      <span>
+                        Berat PO:{' '}
+                        <span className="text-amber-400 font-semibold">
+                          {poWeightKg > 0 ? `${poWeightKg.toLocaleString('id-ID')} kg` : '-'}
+                        </span>
+                      </span>
+                    </div>
                     <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                       <span className={`px-2 py-0.5 text-[10px] font-bold rounded border font-mono-num ${ritBadgeClass}`}>
                         {ritInfo.ritCategory}
@@ -724,10 +851,15 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
                   {/* 3-metric compact box */}
                   <div className="grid grid-cols-3 gap-2 bg-slate-950/70 p-2.5 rounded-lg border border-slate-800 text-center font-mono-num">
                     <div>
-                      <span className="text-[9px] text-slate-500 block uppercase">Muatan SJ</span>
-                      <span className="text-xs text-slate-300 font-bold">
-                        {(tx.suratJalanWeight / 1000).toFixed(2)} T
+                      <span className="text-[9px] text-slate-500 block uppercase">Berat SJ</span>
+                      <span className="text-xs text-slate-300 font-bold block">
+                        {tx.suratJalanWeight > 0 ? `${tx.suratJalanWeight.toLocaleString('id-ID')} kg` : '-'}
                       </span>
+                      {tx.suratJalanWeight > 0 && (
+                        <span className="text-[10px] text-slate-400 block">
+                          {(tx.suratJalanWeight / 1000).toFixed(2)} T
+                        </span>
+                      )}
                     </div>
                     <div>
                       <span className="text-[9px] text-slate-500 block uppercase">Netto Pabrik</span>
@@ -736,14 +868,18 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
                       </span>
                     </div>
                     <div>
-                      <span className="text-[9px] text-slate-500 block uppercase">Susut (%)</span>
-                      <span className={`text-xs font-bold ${
-                        (tx.shrinkagePercentage || 0) < -(purchaseOrders.find((p) => p.id === tx.poId)?.tolerancePercentage || 5)
-                          ? 'text-rose-400'
-                          : 'text-slate-300'
-                      }`}>
-                        {tx.shrinkagePercentage !== undefined && tx.shrinkagePercentage !== 0
-                          ? `${tx.shrinkagePercentage > 0 ? '+' : ''}${tx.shrinkagePercentage.toFixed(2)}%`
+                      <span className="text-[9px] text-slate-500 block uppercase">Toleransi (%)</span>
+                      <span
+                        className={`text-xs font-bold ${
+                          !poTolerance.hasValue
+                            ? 'text-slate-400'
+                            : poTolerance.isExceeded
+                              ? 'text-rose-400'
+                              : 'text-emerald-400'
+                        }`}
+                      >
+                        {poTolerance.hasValue
+                          ? `${poTolerance.pct > 0 ? '+' : ''}${poTolerance.pct.toFixed(2)}%`
                           : '-'}
                       </span>
                     </div>
@@ -810,11 +946,13 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
                 <th className="py-3 px-3">No Tiket & Antrean</th>
                 <th className="py-3 px-3">No Polisi / Driver</th>
                 <th className="py-3 px-3">PO & Supplier</th>
-                <th className="py-3 px-3">Surat Jalan (SJ)</th>
+                <th className="py-3 px-3">No. Surat Jalan (SJ)</th>
+                <th className="py-3 px-3 text-right">Berat Surat Jalan</th>
+                <th className="py-3 px-3 text-right">Berat PO</th>
                 <th className="py-3 px-3 text-right">Gross (kg)</th>
                 <th className="py-3 px-3 text-right">Tare (kg)</th>
                 <th className="py-3 px-3 text-right">Netto Pabrik</th>
-                <th className="py-3 px-3 text-right">Susut (%)</th>
+                <th className="py-3 px-3 text-right">Toleransi (%)</th>
                 <th className="py-3 px-3">Kualitas QC</th>
                 <th className="py-3 px-3">Status</th>
                 <th className="py-3 px-3">Keterangan</th>
@@ -929,7 +1067,53 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
                         type="button"
                         onClick={() => setColSj('')}
                         className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
-                        title="Hapus filter surat jalan"
+                        title="Hapus filter no. surat jalan"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                <th className="px-2 py-2 font-normal normal-case">
+                  <div className="relative flex items-center">
+                    <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={colSjWeight}
+                      onChange={(e) => setColSjWeight(e.target.value)}
+                      placeholder="Berat SJ..."
+                      className="w-full min-w-[88px] pl-6 pr-4 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                    />
+                    {colSjWeight && (
+                      <button
+                        type="button"
+                        onClick={() => setColSjWeight('')}
+                        className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                        title="Hapus filter berat surat jalan"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                <th className="px-2 py-2 font-normal normal-case">
+                  <div className="relative flex items-center">
+                    <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={colPoWeight}
+                      onChange={(e) => setColPoWeight(e.target.value)}
+                      placeholder="Berat PO..."
+                      className="w-full min-w-[88px] pl-6 pr-4 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                    />
+                    {colPoWeight && (
+                      <button
+                        type="button"
+                        onClick={() => setColPoWeight('')}
+                        className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                        title="Hapus filter berat PO"
                       >
                         ×
                       </button>
@@ -1013,15 +1197,15 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
                       type="text"
                       value={colSusut}
                       onChange={(e) => setColSusut(e.target.value)}
-                      placeholder="Susut..."
-                      className="w-full min-w-[74px] pl-6 pr-4 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                      placeholder="Toleransi..."
+                      className="w-full min-w-[86px] pl-6 pr-4 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
                     />
                     {colSusut && (
                       <button
                         type="button"
                         onClick={() => setColSusut('')}
                         className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
-                        title="Hapus filter susut"
+                        title="Hapus filter toleransi"
                       >
                         ×
                       </button>
@@ -1116,7 +1300,7 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
             <tbody className="divide-y divide-slate-800/80 text-slate-300">
               {filteredTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="py-8 text-center text-slate-500">
+                  <td colSpan={15} className="py-8 text-center text-slate-500">
                     Tidak ada transaksi yang cocok dengan filter pencarian.
                   </td>
                 </tr>
@@ -1140,6 +1324,8 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
                   else if (tx.status === 'GATE_OUT') nextTab = 'security';
 
                   const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
+                  const poTolerance = getTransactionPoTolerance(tx);
+                  const poWeightKg = poTolerance.poWeightKg;
                   const ritBadgeClass =
                     ritInfo.ritNumber === 1
                       ? 'bg-amber-50 text-amber-900 border-amber-300'
@@ -1187,10 +1373,41 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
                       </td>
 
                       <td className="py-3 px-3 font-mono-num">
-                        <div className="text-slate-300 font-medium">{tx.suratJalanNumber}</div>
-                        <div className="text-[11px] text-slate-400">
-                          {(tx.suratJalanWeight / 1000).toFixed(2)} Ton
-                        </div>
+                        <div className="text-slate-300 font-medium">{tx.suratJalanNumber || '-'}</div>
+                      </td>
+
+                      <td className="py-3 px-3 text-right font-mono-num whitespace-nowrap">
+                        {tx.suratJalanWeight > 0 ? (
+                          <div>
+                            <span className="text-slate-200 font-semibold">
+                              {tx.suratJalanWeight.toLocaleString('id-ID')} kg
+                            </span>
+                            <div className="text-[11px] text-slate-400">
+                              {(tx.suratJalanWeight / 1000).toFixed(2)} Ton
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-slate-600">-</span>
+                        )}
+                      </td>
+
+                      <td className="py-3 px-3 text-right font-mono-num whitespace-nowrap">
+                        {poWeightKg > 0 ? (
+                          <div>
+                            <span className="text-amber-400 font-semibold">
+                              {poWeightKg.toLocaleString('id-ID')} kg
+                            </span>
+                            <div className="text-[11px] text-slate-400">
+                              {(poWeightKg / 1000).toLocaleString('id-ID', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}{' '}
+                              Ton
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-slate-600">-</span>
+                        )}
                       </td>
 
                       <td className="py-3 px-3 text-right font-mono-num">
@@ -1220,15 +1437,24 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
                         )}
                       </td>
 
-                      <td className="py-3 px-3 text-right font-mono-num">
-                        {tx.status === 'COMPLETED' ? (
-                          <span className={`font-semibold ${
-                            tx.shrinkagePercentage < -(purchaseOrders.find((p) => p.id === tx.poId)?.tolerancePercentage || 5)
-                              ? 'text-rose-400'
-                              : 'text-emerald-400'
-                          }`}>
-                            {tx.shrinkagePercentage > 0 ? '+' : ''}{tx.shrinkagePercentage.toFixed(2)}%
-                          </span>
+                      <td className="py-3 px-3 text-right font-mono-num whitespace-nowrap">
+                        {poTolerance.hasValue ? (
+                          <div
+                            title={`Netto Pabrik (${tx.nettoWeight.toLocaleString('id-ID')} kg) vs Berat PO (${poTolerance.poWeightKg.toLocaleString('id-ID')} kg) · Selisih: ${poTolerance.diffKg > 0 ? '+' : ''}${poTolerance.diffKg.toLocaleString('id-ID')} kg (Batas ±${poTolerance.toleranceLimit}%)`}
+                          >
+                            <span
+                              className={`font-semibold ${
+                                poTolerance.isExceeded ? 'text-rose-400' : 'text-emerald-400'
+                              }`}
+                            >
+                              {poTolerance.pct > 0 ? '+' : ''}
+                              {poTolerance.pct.toFixed(2)}%
+                            </span>
+                            <div className="text-[10px] text-slate-400">
+                              {poTolerance.diffKg > 0 ? '+' : ''}
+                              {poTolerance.diffKg.toLocaleString('id-ID')} kg
+                            </div>
+                          </div>
                         ) : (
                           <span className="text-slate-600">-</span>
                         )}

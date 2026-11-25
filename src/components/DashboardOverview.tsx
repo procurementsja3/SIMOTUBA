@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { PurchaseOrder, ArrivalSchedule, CoalTransaction, ActiveTab } from '../types/coal';
 import { calculateDuration, getOperationalTimeline } from '../utils/timeUtils';
-import { resolveTransactionRitInfo } from '../utils/ritUtils';
+import { resolveTransactionRitInfo, getScheduleRitDetails } from '../utils/ritUtils';
 import { formatDisplayTicketNumber } from '../utils/ticketUtils';
 import { TransactionTimelineModal } from './TransactionTimelineModal';
 import { CoalReceivingHistoricalSection } from './CoalReceivingHistoricalSection';
@@ -74,6 +74,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const [histColTimeline, setHistColTimeline] = useState('');
   const [historyPage, setHistoryPage] = useState<number>(1);
   const HISTORY_PAGE_SIZE = 8;
+
+  // Filter khusus untuk tabel Monitoring Penerimaan Melebihi Toleransi (> 5%)
+  const [toleranceTypeFilter, setToleranceTypeFilter] = useState<'ALL' | 'EXCESS_SHRINKAGE' | 'SURPLUS'>('ALL');
+  const [toleranceSupplierFilter, setToleranceSupplierFilter] = useState<string>('');
+  const [tolerancePage, setTolerancePage] = useState<number>(1);
+  const TOLERANCE_PAGE_SIZE = 10;
 
   const [kpiScope, setKpiScope] = useState<'TODAY' | 'ALL'>('ALL');
 
@@ -245,6 +251,166 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     () => transactions.filter((t) => t.status !== 'COMPLETED' && t.status !== 'REJECTED'),
     [transactions]
   );
+
+  // Daftar Khusus: Penerimaan Batubara yang Melebihi Toleransi 5% (Target Kuota vs Berat Netto Penerimaan)
+  const outOfToleranceReceivings = useMemo(() => {
+    const TOLERANCE_THRESHOLD_PCT = 5;
+    const DEFAULT_TARGET_QUOTA_KG = 30000;
+
+    const getScheduleQuotaKg = (sch: ArrivalSchedule): number => {
+      const rawKg = Number(sch.estimatedTonnage || 0);
+      if (rawKg <= 0) return 0;
+      const trucks = Math.max(1, Number(sch.estimatedTruckCount || 1));
+      return Math.round(rawKg / trucks);
+    };
+
+    const resolveTargetQuotaKg = (tx: CoalTransaction, ritNumber: number): number => {
+      if (tx.scheduleId) {
+        const directSch = schedules.find((s) => s.id === tx.scheduleId);
+        if (directSch) {
+          const kg = getScheduleQuotaKg(directSch);
+          if (kg > 0) return kg;
+        }
+      }
+
+      const normPoNum = (tx.poNumber || '').trim().toLowerCase();
+      const samePoSchedules = schedules.filter((s) => {
+        if (s.status === 'CANCELLED') return false;
+        if (tx.poId && s.poId === tx.poId) return true;
+        return Boolean(normPoNum) && (s.poNumber || '').trim().toLowerCase() === normPoNum;
+      });
+
+      if (samePoSchedules.length > 0) {
+        const byRit = samePoSchedules.find(
+          (s) => getScheduleRitDetails(s, schedules).ritNumber === ritNumber && getScheduleQuotaKg(s) > 0
+        );
+        if (byRit) return getScheduleQuotaKg(byRit);
+
+        const txDate = (tx.scheduledDeliveryDate || tx.gateInTime || '').slice(0, 10);
+        if (txDate) {
+          const byDate = samePoSchedules.find(
+            (s) => (s.etaDateTime || '').slice(0, 10) === txDate && getScheduleQuotaKg(s) > 0
+          );
+          if (byDate) return getScheduleQuotaKg(byDate);
+        }
+
+        const firstValid = samePoSchedules.find((s) => getScheduleQuotaKg(s) > 0);
+        if (firstValid) return getScheduleQuotaKg(firstValid);
+      }
+
+      return DEFAULT_TARGET_QUOTA_KG;
+    };
+
+    return transactions
+      .filter((tx) => tx.status !== 'REJECTED')
+      .map((tx) => {
+        const nettoKg =
+          typeof tx.nettoWeight === 'number' && tx.nettoWeight > 0
+            ? tx.nettoWeight
+            : tx.grossWeight && tx.tareWeight && tx.grossWeight > tx.tareWeight
+              ? tx.grossWeight - tx.tareWeight
+              : (tx.nettoTons || 0) * 1000;
+
+        if (nettoKg <= 0) return null;
+
+        const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
+        const targetQuotaKg = resolveTargetQuotaKg(tx, ritInfo.ritNumber);
+        if (targetQuotaKg <= 0) return null;
+
+        const diffKg = nettoKg - targetQuotaKg;
+        const tolerancePct = Number(((diffKg / targetQuotaKg) * 100).toFixed(2));
+        const po =
+          (tx.poId ? purchaseOrders.find((p) => p.id === tx.poId) : undefined) ||
+          purchaseOrders.find(
+            (p) => (p.poNumber || '').trim().toLowerCase() === (tx.poNumber || '').trim().toLowerCase()
+          );
+        const poTolerancePct = Number(po?.tolerancePercentage) > 0 ? Number(po!.tolerancePercentage) : TOLERANCE_THRESHOLD_PCT;
+        const effectiveLimitPct = Math.min(TOLERANCE_THRESHOLD_PCT, poTolerancePct);
+
+        if (Math.abs(tolerancePct) <= effectiveLimitPct) return null;
+
+        const alertType: 'EXCESS_SHRINKAGE' | 'SURPLUS' =
+          tolerancePct < -effectiveLimitPct ? 'EXCESS_SHRINKAGE' : 'SURPLUS';
+        const excessPct = Math.max(0, Math.abs(tolerancePct) - effectiveLimitPct);
+        const excessKg = Math.max(0, Math.abs(diffKg) - targetQuotaKg * (effectiveLimitPct / 100));
+
+        return {
+          tx,
+          targetQuotaKg,
+          nettoKg,
+          diffKg,
+          tolerancePct,
+          effectiveLimitPct,
+          alertType,
+          excessPct,
+          excessKg,
+          ritInfo,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+      .sort(
+        (a, b) =>
+          new Date(b.tx.gateInTime || b.tx.weighOutTime || 0).getTime() -
+          new Date(a.tx.gateInTime || a.tx.weighOutTime || 0).getTime()
+      );
+  }, [transactions, purchaseOrders, schedules]);
+
+  const toleranceSupplierOptions = useMemo(() => {
+    const set = new Set<string>();
+    outOfToleranceReceivings.forEach((item) => {
+      const name = (item.tx.supplierName || '').trim();
+      if (name) set.add(name);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'id'));
+  }, [outOfToleranceReceivings]);
+
+  const filteredOutOfToleranceReceivings = useMemo(() => {
+    return outOfToleranceReceivings.filter((item) => {
+      if (toleranceTypeFilter !== 'ALL' && item.alertType !== toleranceTypeFilter) {
+        return false;
+      }
+      if (
+        toleranceSupplierFilter &&
+        (item.tx.supplierName || '').trim() !== toleranceSupplierFilter
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [outOfToleranceReceivings, toleranceTypeFilter, toleranceSupplierFilter]);
+
+  useEffect(() => {
+    setTolerancePage(1);
+  }, [toleranceTypeFilter, toleranceSupplierFilter, outOfToleranceReceivings.length]);
+
+  const toleranceTotalPages = Math.max(
+    1,
+    Math.ceil(filteredOutOfToleranceReceivings.length / TOLERANCE_PAGE_SIZE)
+  );
+  const safeTolerancePage = Math.min(tolerancePage, toleranceTotalPages);
+  const toleranceStartIndex = (safeTolerancePage - 1) * TOLERANCE_PAGE_SIZE;
+  const toleranceEndIndex = Math.min(
+    toleranceStartIndex + TOLERANCE_PAGE_SIZE,
+    filteredOutOfToleranceReceivings.length
+  );
+  const paginatedOutOfToleranceReceivings = useMemo(
+    () => filteredOutOfToleranceReceivings.slice(toleranceStartIndex, toleranceEndIndex),
+    [filteredOutOfToleranceReceivings, toleranceStartIndex, toleranceEndIndex]
+  );
+
+  const outOfToleranceStats = useMemo(() => {
+    const shrinkageCount = outOfToleranceReceivings.filter(
+      (i) => i.alertType === 'EXCESS_SHRINKAGE'
+    ).length;
+    const surplusCount = outOfToleranceReceivings.filter(
+      (i) => i.alertType === 'SURPLUS'
+    ).length;
+    const totalExcessKg = outOfToleranceReceivings.reduce(
+      (sum, i) => sum + i.excessKg,
+      0
+    );
+    return { shrinkageCount, surplusCount, totalExcessKg };
+  }, [outOfToleranceReceivings]);
 
   // Compute sub-process averages across completed transactions (QC-PA excluded from process duration)
   const subProcessAverages = useMemo(() => {
@@ -741,6 +907,407 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           )}
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* MONITORING KHUSUS: PENERIMAAN MELEBIHI TOLERANSI SUSUT (> 5%)             */}
+      {/* ========================================================================= */}
+      <div
+        className={`bg-white rounded-xl p-5 shadow-xs space-y-4 border-2 ${
+          outOfToleranceReceivings.length > 0
+            ? 'border-rose-300'
+            : 'border-slate-300'
+        }`}
+      >
+        {/* Header Judul Khusus */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+          <div className="flex items-start gap-3">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 border ${
+                outOfToleranceReceivings.length > 0
+                  ? 'bg-rose-50 border-rose-300'
+                  : 'bg-emerald-50 border-emerald-300'
+              }`}
+            >
+              {outOfToleranceReceivings.length > 0 ? (
+                <AlertTriangle className="w-5 h-5 text-rose-600" />
+              ) : (
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              )}
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-base font-black text-slate-900 tracking-wide uppercase">
+                  Monitoring Penerimaan Melebihi Toleransi (&gt; 5%)
+                </h3>
+                {outOfToleranceReceivings.length > 0 ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 font-mono-num">
+                    <span className="w-2 h-2 rounded-full bg-rose-600 animate-ping" />
+                    {outOfToleranceReceivings.length} Armada Di Luar Toleransi
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 font-mono-num">
+                    0 Armada · Semua Dalam Toleransi (±5%)
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Daftar khusus monitoring nomor RIT, Nopol armada, Supplier, dan rincian selisih Target Kuota per jadwal pengiriman terhadap Berat Netto penerimaan yang melebihi batas toleransi 5%.
+              </p>
+            </div>
+          </div>
+
+          {/* Filter Cepat saat terdapat data melebihi toleransi */}
+          {outOfToleranceReceivings.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center bg-slate-100 border border-slate-300 rounded-lg p-0.5 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setToleranceTypeFilter('ALL')}
+                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
+                    toleranceTypeFilter === 'ALL'
+                      ? 'bg-rose-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Semua ({outOfToleranceReceivings.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setToleranceTypeFilter('EXCESS_SHRINKAGE')}
+                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
+                    toleranceTypeFilter === 'EXCESS_SHRINKAGE'
+                      ? 'bg-rose-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Susut &gt;5% ({outOfToleranceStats.shrinkageCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setToleranceTypeFilter('SURPLUS')}
+                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
+                    toleranceTypeFilter === 'SURPLUS'
+                      ? 'bg-amber-500 text-slate-950 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Surplus &gt;5% ({outOfToleranceStats.surplusCount})
+                </button>
+              </div>
+
+              {toleranceSupplierOptions.length > 1 && (
+                <div className="relative flex items-center">
+                  <Building2 className="w-3.5 h-3.5 text-rose-600 absolute left-2.5 pointer-events-none" />
+                  <select
+                    aria-label="Filter Supplier Melebihi Toleransi"
+                    value={toleranceSupplierFilter}
+                    onChange={(e) => setToleranceSupplierFilter(e.target.value)}
+                    className="bg-white border border-slate-300 hover:border-rose-400 focus:border-rose-500 rounded-lg pl-8 pr-6 py-1.5 text-[11px] font-semibold text-slate-800 focus:outline-none cursor-pointer max-w-[220px]"
+                  >
+                    <option value="">Semua Supplier ({toleranceSupplierOptions.length})</option>
+                    {toleranceSupplierOptions.map((sup) => (
+                      <option key={sup} value={sup}>
+                        {sup}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Ringkasan Cepat saat ada penerimaan > 5% */}
+        {outOfToleranceReceivings.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+            <div className="px-3.5 py-2.5 rounded-lg bg-rose-50 border border-rose-200 flex items-center justify-between">
+              <span className="text-rose-900 font-medium">Kurang / Susut (&lt; -5%):</span>
+              <strong className="font-mono-num font-black text-rose-700">
+                {outOfToleranceStats.shrinkageCount} Rit
+              </strong>
+            </div>
+            <div className="px-3.5 py-2.5 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-between">
+              <span className="text-amber-950 font-medium">Surplus / Lebih (&gt; +5%):</span>
+              <strong className="font-mono-num font-black text-amber-800">
+                {outOfToleranceStats.surplusCount} Rit
+              </strong>
+            </div>
+            <div className="px-3.5 py-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between">
+              <span className="text-slate-700 font-medium">Total Kelebihan Selisih (&gt; 5%):</span>
+              <strong className="font-mono-num font-black text-rose-700">
+                {outOfToleranceStats.totalExcessKg.toLocaleString('id-ID', {
+                  maximumFractionDigits: 0,
+                })}{' '}
+                Kg ({(outOfToleranceStats.totalExcessKg / 1000).toFixed(2)} T)
+              </strong>
+            </div>
+          </div>
+        )}
+
+        {/* Tabel Kolom Khusus Penerimaan Melebihi Toleransi (> 5%) */}
+        <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead className="bg-slate-100 text-slate-700 border-b-2 border-slate-300 font-bold uppercase text-[10.5px] tracking-wide">
+              <tr>
+                <th className="py-2.5 px-3 whitespace-nowrap">Rit Ke-</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">Nopol &amp; No. Tiket</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">Tgl &amp; Driver</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">PO, Supplier &amp; SJ</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Target Kuota vs Netto</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Selisih &amp; Toleransi (%)</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Kelebihan (&gt; 5%)</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {filteredOutOfToleranceReceivings.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-7 px-4 text-center bg-emerald-50/40">
+                    <div className="inline-flex items-center gap-2 text-emerald-800 font-bold text-xs">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>
+                        {outOfToleranceReceivings.length === 0
+                          ? 'Aman — Tidak ada data penerimaan batubara yang melebihi batas toleransi 5%.'
+                          : 'Tidak ada data yang cocok dengan filter jenis/supplier di atas.'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 mt-1">
+                      {outOfToleranceReceivings.length === 0
+                        ? 'Apabila ada transaksi dengan selisih Target Kuota vs Berat Netto penerimaan di atas 5%, data nomor RIT, Nopol, Driver, PO/Supplier, serta nilai kelebihannya akan otomatis tampil di kolom khusus ini.'
+                        : 'Ubah pilihan filter untuk melihat seluruh armada di luar toleransi 5%.'}
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                paginatedOutOfToleranceReceivings.map((item) => {
+                  const { tx, targetQuotaKg, nettoKg, diffKg, tolerancePct, effectiveLimitPct, alertType, excessPct, excessKg, ritInfo } = item;
+                  const isShrinkage = alertType === 'EXCESS_SHRINKAGE';
+                  const formattedDate = tx.gateInTime
+                    ? new Date(tx.gateInTime).toLocaleDateString('id-ID', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                      })
+                    : '-';
+
+                  return (
+                    <tr
+                      key={tx.id}
+                      className={
+                        isShrinkage
+                          ? 'bg-rose-50/35 hover:bg-rose-50/70 transition-colors'
+                          : 'bg-amber-50/35 hover:bg-amber-50/70 transition-colors'
+                      }
+                    >
+                      {/* 1. RIT KE- */}
+                      <td className="py-2.5 px-3 align-middle">
+                        <span className="inline-block px-2.5 py-1 rounded-lg bg-rose-100 text-rose-900 border border-rose-300 font-mono-num font-black text-xs whitespace-nowrap">
+                          {ritInfo.ritCategory}
+                        </span>
+                        {ritInfo.ritRemarks && (
+                          <div
+                            className="text-[10px] text-slate-600 mt-0.5 max-w-[160px] truncate"
+                            title={ritInfo.ritRemarks}
+                          >
+                            {ritInfo.ritRemarks}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* 2. NOPOL & TIKET */}
+                      <td className="py-2.5 px-3 align-middle whitespace-nowrap">
+                        <span className="inline-block font-mono text-xs font-black text-slate-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300 tracking-wider">
+                          {tx.vehiclePlate}
+                        </span>
+                        <div className="text-[10px] font-mono-num text-slate-600 mt-0.5">
+                          {formatDisplayTicketNumber(tx.ticketNumber)}
+                        </div>
+                      </td>
+
+                      {/* 3. TGL & DRIVER */}
+                      <td className="py-2.5 px-3 align-middle whitespace-nowrap">
+                        <div className="text-xs font-bold text-slate-900">
+                          {tx.driverName || '-'}
+                        </div>
+                        <div className="text-[10px] text-slate-600 font-mono-num flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-amber-600 shrink-0" />
+                          <span>{formattedDate}</span>
+                          {tx.transporterName && (
+                            <span className="text-slate-500 font-sans">· {tx.transporterName}</span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* 4. PO, SUPPLIER & SJ */}
+                      <td className="py-2.5 px-3 align-middle">
+                        <div className="font-mono text-[11px] font-bold text-amber-800 whitespace-nowrap">
+                          {tx.poNumber}
+                          <span className="text-slate-500 font-normal ml-1.5">
+                            SJ: {tx.suratJalanNumber || '-'}
+                          </span>
+                        </div>
+                        <div
+                          className="text-[11px] font-semibold text-slate-800 max-w-[220px] truncate"
+                          title={tx.supplierName}
+                        >
+                          {tx.supplierName}
+                        </div>
+                      </td>
+
+                      {/* 5. TARGET KUOTA vs NETTO */}
+                      <td className="py-2.5 px-3 align-middle text-right font-mono-num whitespace-nowrap">
+                        <div className="text-[11px] text-slate-600">
+                          Target Kuota: <strong className="text-amber-800">{targetQuotaKg.toLocaleString('id-ID')} Kg</strong>
+                        </div>
+                        <div className="text-[11px] text-emerald-800">
+                          Netto: <strong>{nettoKg.toLocaleString('id-ID')} Kg</strong>
+                        </div>
+                      </td>
+
+                      {/* 6. SELISIH & TOLERANSI (%) */}
+                      <td className="py-2.5 px-3 align-middle text-right font-mono-num whitespace-nowrap">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded font-black text-xs border ${
+                            isShrinkage
+                              ? 'bg-rose-100 text-rose-800 border-rose-300'
+                              : 'bg-amber-100 text-amber-900 border-amber-300'
+                          }`}
+                        >
+                          {tolerancePct > 0 ? '+' : ''}
+                          {tolerancePct.toFixed(2)}%
+                        </span>
+                        <div className="text-[10px] font-bold text-slate-700 mt-0.5">
+                          {diffKg > 0 ? '+' : ''}
+                          {diffKg.toLocaleString('id-ID')} Kg ({isShrinkage ? 'Kurang' : 'Surplus'})
+                        </div>
+                      </td>
+
+                      {/* 7. KELEBIHAN (> 5%) */}
+                      <td className="py-2.5 px-3 align-middle text-right font-mono-num whitespace-nowrap">
+                        <div className="text-xs font-black text-rose-700">
+                          +{excessPct.toFixed(2)}% di atas {effectiveLimitPct}%
+                        </div>
+                        <div className="text-[10px] font-semibold text-rose-800">
+                          {excessKg.toLocaleString('id-ID', { maximumFractionDigits: 0 })} Kg (
+                          {(excessKg / 1000).toFixed(2)} T)
+                        </div>
+                      </td>
+
+                      {/* 8. AKSI */}
+                      <td className="py-2.5 px-3 align-middle text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTimelineTx(tx)}
+                            className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg border border-slate-300 transition-colors cursor-pointer"
+                            title="Lihat Timeline Durasi Lengkap"
+                          >
+                            <History className="w-3.5 h-3.5 text-amber-700" />
+                          </button>
+                          {onOpenTicket && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenTicket(tx)}
+                              className="p-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg transition-colors font-bold cursor-pointer"
+                              title="Cetak Dokumen Berita Acara In Out"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination Kontrol (Maksimal 10 Data per Halaman) */}
+        {filteredOutOfToleranceReceivings.length > 0 && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 text-xs">
+            <div className="text-slate-600 font-mono-num">
+              Menampilkan{' '}
+              <span className="font-bold text-slate-900">
+                {toleranceStartIndex + 1}–{toleranceEndIndex}
+              </span>{' '}
+              dari{' '}
+              <span className="font-bold text-slate-900">
+                {filteredOutOfToleranceReceivings.length}
+              </span>{' '}
+              armada · Halaman{' '}
+              <span className="font-bold text-rose-700">{safeTolerancePage}</span> /{' '}
+              <span className="font-bold text-slate-900">{toleranceTotalPages}</span>{' '}
+              <span className="text-[11px] text-slate-500">
+                (Maks. {TOLERANCE_PAGE_SIZE} data/halaman)
+              </span>
+            </div>
+
+            {toleranceTotalPages > 1 && (
+              <div className="flex items-center flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setTolerancePage((p) => Math.max(1, p - 1))}
+                  disabled={safeTolerancePage <= 1}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>Sebelumnya</span>
+                </button>
+
+                {Array.from({ length: toleranceTotalPages }, (_, idx) => idx + 1)
+                  .filter(
+                    (page) =>
+                      page === 1 ||
+                      page === toleranceTotalPages ||
+                      Math.abs(page - safeTolerancePage) <= 1
+                  )
+                  .reduce<(number | 'ellipsis')[]>((acc, page, idx, arr) => {
+                    if (idx > 0 && page - arr[idx - 1] > 1) {
+                      acc.push('ellipsis');
+                    }
+                    acc.push(page);
+                    return acc;
+                  }, [])
+                  .map((entry, idx) =>
+                    entry === 'ellipsis' ? (
+                      <span
+                        key={`tol-ellipsis-${idx}`}
+                        className="px-1.5 text-slate-400 font-mono-num select-none"
+                      >
+                        ...
+                      </span>
+                    ) : (
+                      <button
+                        key={`tol-page-${entry}`}
+                        type="button"
+                        onClick={() => setTolerancePage(entry)}
+                        className={`min-w-[30px] px-2 py-1.5 rounded-lg border font-mono-num font-bold transition-colors cursor-pointer ${
+                          entry === safeTolerancePage
+                            ? 'bg-rose-600 text-white border-rose-600 shadow-2xs'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                        }`}
+                      >
+                        {entry}
+                      </button>
+                    )
+                  )}
+
+                <button
+                  type="button"
+                  onClick={() => setTolerancePage((p) => Math.min(toleranceTotalPages, p + 1))}
+                  disabled={safeTolerancePage >= toleranceTotalPages}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                >
+                  <span>Berikutnya</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Visual Pipeline Progression Radar */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
