@@ -31,6 +31,7 @@ import {
   validateTransactionChronology,
 } from '../utils/toleranceUtils';
 import { downloadCsvFile } from '../utils/csvUtils';
+import { formatDisplayTicketNumber } from '../utils/ticketUtils';
 
 interface TransactionsTableProps {
   transactions: CoalTransaction[];
@@ -318,7 +319,8 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
       // Filter kolom: No Tiket & Antrean
       if (colTicket.trim()) {
         const tq = colTicket.toLowerCase().trim();
-        const combined = `${tx.ticketNumber || ''} ${tx.queueNumber || ''}`.toLowerCase();
+        const displayTicket = formatDisplayTicketNumber(tx.ticketNumber);
+        const combined = `${displayTicket} ${tx.ticketNumber || ''} ${tx.queueNumber || ''}`.toLowerCase();
         if (!combined.includes(tq)) return false;
       }
 
@@ -524,7 +526,7 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
       const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
       return [
         tx.gateInTime ? new Date(tx.gateInTime).toLocaleDateString('id-ID') : '',
-        tx.ticketNumber,
+        formatDisplayTicketNumber(tx.ticketNumber),
         tx.queueNumber,
         tx.status,
         tx.poNumber,
@@ -704,7 +706,7 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
                   <div className="text-xs space-y-1">
                     <div className="flex justify-between text-slate-200 font-semibold">
                       <span>{tx.driverName}</span>
-                      <span className="font-mono-num text-slate-400 text-[11px]">{tx.ticketNumber}</span>
+                      <span className="font-mono-num text-slate-400 text-[11px]">{formatDisplayTicketNumber(tx.ticketNumber)}</span>
                     </div>
                     <div className="text-slate-400 text-[11px] truncate">
                       {tx.supplierName} · <span className="font-mono-num text-slate-300">{tx.poNumber}</span>
@@ -1168,7 +1170,7 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
                       </td>
 
                       <td className="py-3 px-3 font-mono-num">
-                        <div className="font-bold text-slate-200">{tx.ticketNumber}</div>
+                        <div className="font-bold text-slate-200">{formatDisplayTicketNumber(tx.ticketNumber)}</div>
                         <div className="text-[11px] text-amber-400 font-semibold">{tx.queueNumber}</div>
                       </td>
 
@@ -1418,7 +1420,7 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
                   <Pencil className="w-4 h-4 text-sky-600 shrink-0" />
                   <span>Edit Riwayat Operasional Penerimaan Batubara</span>
                   <span className="font-mono-num text-xs font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">
-                    {editingTx.vehiclePlate} · {editingTx.ticketNumber}
+                    {editingTx.vehiclePlate} · {formatDisplayTicketNumber(editingTx.ticketNumber)}
                   </span>
                 </h3>
                 <p className="text-[11px] text-slate-600 mt-0.5">

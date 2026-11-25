@@ -32,6 +32,7 @@ import {
 import { PurchaseOrder, ArrivalSchedule, CoalTransaction, ActiveTab } from '../types/coal';
 import { calculateDuration, getOperationalTimeline } from '../utils/timeUtils';
 import { resolveTransactionRitInfo } from '../utils/ritUtils';
+import { formatDisplayTicketNumber } from '../utils/ticketUtils';
 import { TransactionTimelineModal } from './TransactionTimelineModal';
 import { CoalReceivingHistoricalSection } from './CoalReceivingHistoricalSection';
 import { SupplierPerformanceChart } from './SupplierPerformanceChart';
@@ -293,7 +294,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         t.poNumber.toLowerCase().includes(q) ||
         t.supplierName.toLowerCase().includes(q) ||
         ritInfo.ritCategory.toLowerCase().includes(q) ||
-        (t.ticketNumber && t.ticketNumber.toLowerCase().includes(q))
+        (t.ticketNumber && (t.ticketNumber.toLowerCase().includes(q) || formatDisplayTicketNumber(t.ticketNumber).toLowerCase().includes(q)))
       );
     });
   }, [transactions, schedules, historyFilter, historySearch]);
@@ -1409,7 +1410,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 text-[11px] text-slate-600 border-t border-slate-300 font-mono-num">
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span>ID Transaksi: <strong className="text-slate-900 font-bold">{tx.id}</strong></span>
-                                    {tx.ticketNumber && <span>· Tiket: <strong className="text-slate-900 font-bold">{tx.ticketNumber}</strong></span>}
+                                    {tx.ticketNumber && <span>· Tiket: <strong className="text-slate-900 font-bold">{formatDisplayTicketNumber(tx.ticketNumber)}</strong></span>}
                                     <span>· Tgl Kedatangan: <strong className="text-amber-900 font-bold">{formattedArrivalDate}</strong></span>
                                   </div>
 

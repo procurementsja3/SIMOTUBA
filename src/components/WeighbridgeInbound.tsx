@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { CoalTransaction } from '../types/coal';
 import { WeighbridgeIndicator } from './WeighbridgeIndicator';
+import { formatDisplayTicketNumber } from '../utils/ticketUtils';
 
 const getLocalDateStr = (d = new Date()) => {
   const year = d.getFullYear();
@@ -316,7 +317,7 @@ export const WeighbridgeInbound: React.FC<WeighbridgeInboundProps> = ({
 
                   <div className="text-right text-xs">
                     <div className="text-slate-400">
-                      No. Tiket: <strong className="text-white font-mono-num">{activeTx.ticketNumber}</strong>
+                      No. Tiket: <strong className="text-white font-mono-num">{formatDisplayTicketNumber(activeTx.ticketNumber)}</strong>
                     </div>
                     <div className="text-amber-400 font-mono-num font-bold">
                       No. Antrean: {activeTx.queueNumber}

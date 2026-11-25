@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ShieldCheck, 
   Truck, 
@@ -9,6 +9,8 @@ import {
   ArrowRight, 
   CheckCircle2, 
   AlertTriangle, 
+  AlertOctagon,
+  BellRing,
   Layers, 
   FileText, 
   Printer, 
@@ -16,11 +18,14 @@ import {
   Calendar,
   X,
   Pencil,
-  Trash2
+  Trash2,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { CoalTransaction, PurchaseOrder, ArrivalSchedule } from '../types/coal';
 import { calculateDuration } from '../utils/timeUtils';
 import { getScheduleRitDetails } from '../utils/ritUtils';
+import { evaluatePoQuotaStatus, PoQuotaCheckResult } from '../utils/poQuotaUtils';
 import { TransactionTimelineModal } from './TransactionTimelineModal';
 
 interface PosSecurityProps {
@@ -91,9 +96,15 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
   const [supplierFilter, setSupplierFilter] = useState<string>('ALL');
   const [isCheckInOpen, setIsCheckInOpen] = useState(false);
   const [checkInError, setCheckInError] = useState<string | null>(null);
+  const [pendingExcessConfirm, setPendingExcessConfirm] = useState<{
+    tx: CoalTransaction;
+    check: PoQuotaCheckResult;
+  } | null>(null);
   const [historyScope, setHistoryScope] = useState<'TODAY' | 'ALL'>('ALL');
-  // Gate In registration history scope & per-column search filters
+  // Gate In registration history scope, pagination (10/page) & per-column search filters
+  const GATE_IN_ITEMS_PER_PAGE = 10;
   const [gateInHistoryScope, setGateInHistoryScope] = useState<'TODAY' | 'ALL'>('ALL');
+  const [gateInPage, setGateInPage] = useState(1);
   const [giColDate, setGiColDate] = useState('');
   const [giColTime, setGiColTime] = useState('');
   const [giColPlate, setGiColPlate] = useState('');
@@ -302,6 +313,49 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
     return true;
   });
 
+  // Reset pagination to page 1 when Gate In history scope or column filters change
+  useEffect(() => {
+    setGateInPage(1);
+  }, [
+    gateInHistoryScope,
+    giColDate,
+    giColTime,
+    giColPlate,
+    giColDriver,
+    giColPoSupplier,
+    giColSj,
+    giColOfficer,
+    giColStatus,
+  ]);
+
+  const totalGateInPages = Math.max(
+    1,
+    Math.ceil(filteredGateInTrucks.length / GATE_IN_ITEMS_PER_PAGE)
+  );
+  const safeGateInPage = Math.min(gateInPage, totalGateInPages);
+  const gateInStartIdx = (safeGateInPage - 1) * GATE_IN_ITEMS_PER_PAGE;
+  const gateInEndIdx = Math.min(
+    gateInStartIdx + GATE_IN_ITEMS_PER_PAGE,
+    filteredGateInTrucks.length
+  );
+  const paginatedGateInTrucks = filteredGateInTrucks.slice(gateInStartIdx, gateInEndIdx);
+
+  const gateInPageNumbers = useMemo(() => {
+    const pages: (number | 'ellipsis')[] = [];
+    if (totalGateInPages <= 7) {
+      for (let i = 1; i <= totalGateInPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (safeGateInPage > 3) pages.push('ellipsis');
+      const start = Math.max(2, safeGateInPage - 1);
+      const end = Math.min(totalGateInPages - 1, safeGateInPage + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      if (safeGateInPage < totalGateInPages - 2) pages.push('ellipsis');
+      pages.push(totalGateInPages);
+    }
+    return pages;
+  }, [totalGateInPages, safeGateInPage]);
+
   // Trucks ready for Gate Out (have completed tare weigh-out)
   const gateOutWaitingTrucks = transactions.filter((t) => t.status === 'GATE_OUT');
 
@@ -506,6 +560,55 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
     setEditScheduleError(null);
   };
 
+  // Notifikasi Proaktif: deteksi PO yang saat ini sudah mengalami kelebihan jumlah rit kirim atau kelebihan Qty PO
+  const poExcessAlerts = useMemo(() => {
+    return purchaseOrders
+      .filter((po) => po.status !== 'CLOSED')
+      .map((po) =>
+        evaluatePoQuotaStatus(po, schedules, transactions, {
+          incomingWeightKg: 0,
+          incomingRitCount: 0,
+        })
+      )
+      .filter((res) => res.hasExcessAlert);
+  }, [purchaseOrders, schedules, transactions]);
+
+  // Notifikasi Real-Time saat Tim Posko melakukan pengecekan / input pada Formulir Gate-In
+  const activeFormPo = useMemo(
+    () => purchaseOrders.find((p) => p.id === formData.poId) || null,
+    [purchaseOrders, formData.poId]
+  );
+
+  const activeFormQuotaCheck = useMemo(() => {
+    if (!activeFormPo) return null;
+    return evaluatePoQuotaStatus(activeFormPo, schedules, transactions, {
+      incomingWeightKg: Number(formData.suratJalanWeightKg) || 0,
+      incomingRitCount: 1,
+      hasSelectedSchedule: Boolean(formData.scheduleId),
+    });
+  }, [activeFormPo, schedules, transactions, formData.suratJalanWeightKg, formData.scheduleId]);
+
+  const finalizeCheckIn = (txToSave: CoalTransaction) => {
+    onCheckInTruck(txToSave);
+    setPendingExcessConfirm(null);
+    setIsCheckInOpen(false);
+
+    // Reset plate and driver (biarkan berat & petugas kosong untuk penulisan manual berikutnya)
+    setFormData((prev) => ({
+      ...prev,
+      gateInDate: getLocalDateStr(),
+      gateInTime: getLocalTimeStr(),
+      vehiclePlate: '',
+      driverName: '',
+      driverPhone: '',
+      scheduleId: '',
+      suratJalanNumber: `SJ-${Math.floor(1000 + Math.random() * 9000)}`,
+      suratJalanWeightKg: '',
+      securityOfficer: '',
+      securityNotes: '',
+    }));
+  };
+
   const handleCheckInSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setCheckInError(null);
@@ -521,10 +624,17 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
 
     const now = new Date();
     const dateCode = getLocalDateStr(now).slice(2).replace(/-/g, '');
-    const ticketPrefix = `WB-${dateCode}-`;
+    const ticketPrefix = `SJA-${dateCode}-`;
+    const legacyPrefix = `WB-${dateCode}-`;
     const maxTicketSeq = transactions.reduce((max, tx) => {
-      if (tx.ticketNumber?.startsWith(ticketPrefix)) {
-        const seq = parseInt(tx.ticketNumber.slice(ticketPrefix.length), 10);
+      const rawTicket = tx.ticketNumber || '';
+      const matchedPrefix = rawTicket.startsWith(ticketPrefix)
+        ? ticketPrefix
+        : rawTicket.startsWith(legacyPrefix)
+          ? legacyPrefix
+          : null;
+      if (matchedPrefix) {
+        const seq = parseInt(rawTicket.slice(matchedPrefix.length), 10);
         if (!Number.isNaN(seq) && seq > max) return seq;
       }
       return max;
@@ -599,22 +709,22 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
       syncedToGoogleSheet: false,
     };
 
-    onCheckInTruck(newTransaction);
-    setIsCheckInOpen(false);
+    // Validasi Kelebihan Rit Kirim & Qty PO: minta konfirmasi eksplisit dari Tim Posko
+    const submitQuotaCheck = evaluatePoQuotaStatus(selectedPo, schedules, transactions, {
+      incomingWeightKg: Number(formData.suratJalanWeightKg) || 0,
+      incomingRitCount: 1,
+      hasSelectedSchedule: Boolean(formData.scheduleId),
+    });
 
-    // Reset plate and driver (biarkan berat & petugas kosong untuk penulisan manual berikutnya)
-    setFormData((prev) => ({
-      ...prev,
-      gateInDate: getLocalDateStr(),
-      gateInTime: getLocalTimeStr(),
-      vehiclePlate: '',
-      driverName: '',
-      driverPhone: '',
-      scheduleId: '',
-      suratJalanNumber: `SJ-${Math.floor(1000 + Math.random() * 9000)}`,
-      suratJalanWeightKg: '',
-      securityOfficer: '',
-    }));
+    if (submitQuotaCheck.hasExcessAlert) {
+      setPendingExcessConfirm({
+        tx: newTransaction,
+        check: submitQuotaCheck,
+      });
+      return;
+    }
+
+    finalizeCheckIn(newTransaction);
   };
 
   return (
@@ -696,6 +806,80 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
       {/* ======================================================== */}
       {subTab === 'GATE_IN' && (
         <div className="space-y-6">
+          {/* NOTIFIKASI PERINGATAN POSKO: KELEBIHAN RIT KIRIM & QTY PO SUPPLIER */}
+          {poExcessAlerts.length > 0 && (
+            <div className="bg-rose-50 border-2 border-rose-400 rounded-xl p-4 shadow-sm space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-rose-200">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-rose-100 border border-rose-300 text-rose-700 animate-pulse shrink-0">
+                    <BellRing className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-black text-rose-900 uppercase tracking-wide">
+                      Notifikasi Peringatan Posko — Kelebihan Rit Kirim / Qty PO Supplier
+                    </h3>
+                    <p className="text-[11px] text-rose-800 font-medium">
+                      Harap lakukan verifikasi dokumen PO & Surat Jalan sebelum mengizinkan armada masuk gerbang.
+                    </p>
+                  </div>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg bg-rose-600 text-white text-[11px] font-bold font-mono-num shadow-2xs">
+                  {poExcessAlerts.length} PO Melebihi Kuota
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                {poExcessAlerts.map((alert) => (
+                  <div
+                    key={alert.poId}
+                    className="p-3 rounded-lg bg-white border border-rose-300 shadow-2xs space-y-1.5"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-mono text-xs font-black text-rose-900 bg-rose-100 px-2 py-0.5 rounded border border-rose-300">
+                          {alert.poNumber}
+                        </span>
+                        <span className="text-xs font-bold text-slate-900 truncate" title={alert.supplierName}>
+                          {alert.supplierName}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {alert.isExcessRit && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-rose-600 text-white font-mono-num">
+                            +{alert.excessRitCount} RIT
+                          </span>
+                        )}
+                        {(alert.isExcessQty || alert.isScheduledOverQty) && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-600 text-white font-mono-num">
+                            +{((alert.isExcessQty ? alert.excessQtyKg : alert.scheduledExcessQtyKg) / 1000).toFixed(2)} T QTY
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <ul className="space-y-0.5 text-[11px] text-rose-900 font-medium">
+                      {alert.alertReasons.map((reason, idx) => (
+                        <li key={idx} className="flex items-start gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+                          <span>{reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <div className="pt-1 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-600 font-mono-num">
+                      <span>
+                        Rit Masuk: <strong className="text-slate-900">{alert.recordedRitCount}</strong> / {alert.registeredRitCount} Terdaftar
+                      </span>
+                      <span>
+                        Qty Masuk+Proses: <strong className="text-slate-900">{alert.currentCommittedKg.toLocaleString('id-ID')} Kg</strong> / {alert.targetQtyKg.toLocaleString('id-ID')} Kg
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Scheduled Trucks Ready for Gate-In */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
@@ -771,11 +955,23 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {filteredPendingSchedules.map((sch) => {
                   const ritDisplay = getScheduleRitLabel(sch, schedules);
+                  const schPo = purchaseOrders.find((p) => p.id === sch.poId);
+                  const schQuotaCheck = schPo
+                    ? evaluatePoQuotaStatus(schPo, schedules, transactions, {
+                        incomingWeightKg: Number(sch.estimatedTonnage || 0),
+                        incomingRitCount: 1,
+                        hasSelectedSchedule: true,
+                      })
+                    : null;
 
                   return (
                     <div
                       key={sch.id}
-                      className="p-3.5 bg-slate-950/80 rounded-lg border border-slate-800 hover:border-slate-700 transition-colors flex flex-col justify-between"
+                      className={`p-3.5 bg-slate-950/80 rounded-lg border transition-colors flex flex-col justify-between ${
+                        schQuotaCheck?.isExcessRit || schQuotaCheck?.isExcessQty
+                          ? 'border-rose-400 ring-1 ring-rose-300'
+                          : 'border-slate-800 hover:border-slate-700'
+                      }`}
                     >
                       <div className="space-y-1 mb-3">
                         <div className="flex items-center justify-between">
@@ -790,10 +986,28 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                         <div className="text-[11px] text-emerald-400 font-semibold font-mono-num">
                           Estimasi: {Number(sch.estimatedTonnage).toLocaleString('id-ID')} Kg ({sch.estimatedTruckCount || 1} Armada)
                         </div>
-                        <div className="pt-0.5">
+                        <div className="pt-0.5 flex flex-wrap items-center gap-1.5">
                           <span className="inline-block text-[11px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded">
                             {ritDisplay}
                           </span>
+                          {schQuotaCheck?.isExcessRit && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-800 bg-rose-100 border border-rose-300 px-1.5 py-0.5 rounded font-mono-num"
+                              title={`Rit proyeksi (${schQuotaCheck.projectedRitCount}) melebihi ${schQuotaCheck.registeredRitCount} rit terdaftar`}
+                            >
+                              <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                              Lebih +{schQuotaCheck.excessRitCount} Rit
+                            </span>
+                          )}
+                          {schQuotaCheck?.isExcessQty && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-800 bg-rose-100 border border-rose-300 px-1.5 py-0.5 rounded font-mono-num"
+                              title={`Total proyeksi melebihi Qty PO ${schQuotaCheck.targetQtyKg.toLocaleString('id-ID')} Kg`}
+                            >
+                              <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                              Lebih Qty +{(schQuotaCheck.excessQtyKg / 1000).toFixed(2)} T
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -1186,7 +1400,7 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                         </td>
                       </tr>
                     ) : (
-                      filteredGateInTrucks.map((tx) => {
+                      paginatedGateInTrucks.map((tx) => {
                         const statusMeta = getGateInStatusMeta(tx.status);
                         return (
                           <tr key={tx.id} className="hover:bg-slate-800/40 transition-colors">
@@ -1262,6 +1476,85 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                     )}
                   </tbody>
                 </table>
+              </div>
+            )}
+
+            {/* Pagination Bar (10 Data per Halaman) */}
+            {filteredGateInTrucks.length > 0 && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-200 text-xs">
+                <div className="text-slate-600 font-mono-num">
+                  Menampilkan{' '}
+                  <strong className="text-slate-900 font-bold">
+                    {gateInStartIdx + 1}–{gateInEndIdx}
+                  </strong>{' '}
+                  dari{' '}
+                  <strong className="text-slate-900 font-bold">
+                    {filteredGateInTrucks.length}
+                  </strong>{' '}
+                  Riwayat Registrasi
+                  <span className="text-slate-400 mx-1.5">·</span>
+                  <span>
+                    Halaman <strong className="text-slate-900 font-bold">{safeGateInPage}</strong> / {totalGateInPages}
+                  </span>
+                </div>
+
+                {totalGateInPages > 1 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={safeGateInPage <= 1}
+                      onClick={() => setGateInPage((p) => Math.max(1, p - 1))}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                        safeGateInPage <= 1
+                          ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                          : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 cursor-pointer shadow-2xs'
+                      }`}
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Sebelumnya</span>
+                    </button>
+
+                    <div className="flex items-center gap-1">
+                      {gateInPageNumbers.map((pageItem, idx) =>
+                        pageItem === 'ellipsis' ? (
+                          <span
+                            key={`gi-ellipsis-${idx}`}
+                            className="px-1.5 text-xs text-slate-500 select-none"
+                          >
+                            …
+                          </span>
+                        ) : (
+                          <button
+                            key={pageItem}
+                            type="button"
+                            onClick={() => setGateInPage(pageItem)}
+                            className={`min-w-[32px] h-8 px-2 rounded-lg text-xs font-mono-num font-bold border transition-colors cursor-pointer ${
+                              pageItem === safeGateInPage
+                                ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-2xs'
+                                : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                            }`}
+                          >
+                            {pageItem}
+                          </button>
+                        )
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={safeGateInPage >= totalGateInPages}
+                      onClick={() => setGateInPage((p) => Math.min(totalGateInPages, p + 1))}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                        safeGateInPage >= totalGateInPages
+                          ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                          : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 cursor-pointer shadow-2xs'
+                      }`}
+                    >
+                      <span>Berikutnya</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1984,6 +2277,118 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                 </select>
               </div>
 
+              {/* REAL-TIME NOTIFIKASI PENGECEKAN RIT KIRIM & QTY PO SAAT CHECK-IN POSKO */}
+              {activeFormQuotaCheck && (
+                activeFormQuotaCheck.hasExcessAlert ? (
+                  <div className="p-3.5 rounded-xl bg-rose-50 border-2 border-rose-400 space-y-2.5 shadow-xs">
+                    <div className="flex items-start gap-2.5">
+                      <div className="p-1.5 rounded-lg bg-rose-600 text-white shrink-0 mt-0.5">
+                        <BellRing className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-black text-rose-900 uppercase tracking-wide">
+                          Peringatan Posko — Terdeteksi Kelebihan Rit Kirim / Qty PO!
+                        </div>
+                        <p className="text-[11px] text-rose-800 mt-0.5">
+                          Supplier <strong>{activeFormQuotaCheck.supplierName}</strong> (PO{' '}
+                          <strong className="font-mono">{activeFormQuotaCheck.poNumber}</strong>) melebihi batas yang terdaftar di sistem:
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                      {/* Status Rit Kirim */}
+                      <div
+                        className={`p-2.5 rounded-lg border ${
+                          activeFormQuotaCheck.isExcessRit || activeFormQuotaCheck.isUnscheduledRit
+                            ? 'bg-white border-rose-300'
+                            : 'bg-white/70 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1 mb-0.5">
+                          <span className="text-[10px] font-bold uppercase text-slate-600">Status Jumlah Rit Kirim</span>
+                          {activeFormQuotaCheck.isExcessRit ? (
+                            <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white text-[10px] font-extrabold font-mono-num">
+                              +{activeFormQuotaCheck.excessRitCount} RIT LEBIH
+                            </span>
+                          ) : activeFormQuotaCheck.isUnscheduledRit ? (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-600 text-white text-[10px] font-extrabold">
+                              DI LUAR JADWAL
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-bold">
+                              Aman
+                            </span>
+                          )}
+                        </div>
+                        <div className="font-mono-num font-bold text-slate-900">
+                          Rit Proyeksi: {activeFormQuotaCheck.projectedRitCount} Rit{' '}
+                          <span className="text-slate-500 font-normal">
+                            / {activeFormQuotaCheck.registeredRitCount} Terdaftar
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Status Qty PO */}
+                      <div
+                        className={`p-2.5 rounded-lg border ${
+                          activeFormQuotaCheck.isExcessQty
+                            ? 'bg-white border-rose-300'
+                            : 'bg-white/70 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1 mb-0.5">
+                          <span className="text-[10px] font-bold uppercase text-slate-600">Status Qty PO Supplier</span>
+                          {activeFormQuotaCheck.isExcessQty ? (
+                            <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white text-[10px] font-extrabold font-mono-num">
+                              +{(activeFormQuotaCheck.excessQtyKg / 1000).toFixed(2)} T LEBIH
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-bold">
+                              Aman
+                            </span>
+                          )}
+                        </div>
+                        <div className="font-mono-num font-bold text-slate-900">
+                          {activeFormQuotaCheck.projectedTotalKg.toLocaleString('id-ID')} Kg{' '}
+                          <span className="text-slate-500 font-normal">
+                            / {activeFormQuotaCheck.targetQtyKg.toLocaleString('id-ID')} Kg
+                          </span>
+                        </div>
+                        {activeFormQuotaCheck.isExcessQty && (
+                          <div className="text-[10px] font-bold text-rose-700 font-mono-num mt-0.5">
+                            Kelebihan: +{activeFormQuotaCheck.excessQtyKg.toLocaleString('id-ID')} Kg (+{(activeFormQuotaCheck.excessQtyKg / 1000).toFixed(2)} Ton)
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="text-[10px] text-rose-900 bg-rose-100/70 rounded-lg px-2.5 py-1.5 font-mono-num flex flex-wrap items-center justify-between gap-1 border border-rose-200">
+                      <span>
+                        Diterima: <strong>{activeFormQuotaCheck.completedReceivedKg.toLocaleString('id-ID')} Kg</strong> · Proses Pabrik:{' '}
+                        <strong>{activeFormQuotaCheck.inProcessQtyKg.toLocaleString('id-ID')} Kg</strong> · SJ Input:{' '}
+                        <strong>{activeFormQuotaCheck.incomingQtyKg.toLocaleString('id-ID')} Kg</strong>
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-300 flex flex-wrap items-center justify-between gap-2 text-[11px] text-emerald-900">
+                    <span className="font-bold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Cek Kuota PO & Rit Kirim Aman</span>
+                    </span>
+                    <div className="flex flex-wrap items-center gap-3 font-mono-num text-[11px]">
+                      <span>
+                        Rit: <strong>{activeFormQuotaCheck.projectedRitCount}</strong>/{activeFormQuotaCheck.registeredRitCount} Terdaftar
+                      </span>
+                      <span>
+                        Qty Proyeksi: <strong>{activeFormQuotaCheck.projectedTotalKg.toLocaleString('id-ID')}</strong> / {activeFormQuotaCheck.targetQtyKg.toLocaleString('id-ID')} Kg
+                      </span>
+                    </div>
+                  </div>
+                )
+              )}
+
               {/* Tanggal & Jam Kedatangan serta Jadwal Pengiriman */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
                 <div>
@@ -2195,8 +2600,18 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                         }
                         setFormData({ ...formData, suratJalanWeightKg: val });
                       }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-xs text-white font-mono-num placeholder:text-slate-600 focus:outline-none focus:border-amber-500"
+                      className={`w-full bg-slate-900 border rounded px-3 py-1.5 text-xs text-white font-mono-num placeholder:text-slate-600 focus:outline-none ${
+                        activeFormQuotaCheck?.isExcessQty
+                          ? 'border-rose-500 ring-2 ring-rose-500/30 focus:border-rose-500'
+                          : 'border-slate-700 focus:border-amber-500'
+                      }`}
                     />
+                    {activeFormQuotaCheck?.isExcessQty && (
+                      <p className="text-[10px] font-bold text-rose-700 mt-1 flex items-center gap-1 font-mono-num">
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                        <span>Melebihi sisa Qty PO sebesar +{activeFormQuotaCheck.excessQtyKg.toLocaleString('id-ID')} Kg</span>
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -2228,30 +2643,156 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
               </div>
 
               {/* Submit Action */}
-              <div className="flex items-center justify-between pt-4 border-t border-slate-800">
-                <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Nopol akan langsung otomatis aktif di Jembatan Timbang Masuk
-                </span>
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-4 border-t border-slate-800">
+                {activeFormQuotaCheck?.hasExcessAlert ? (
+                  <span className="text-[11px] text-rose-700 font-bold flex items-center gap-1.5">
+                    <AlertOctagon className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>Kelebihan Rit / Qty PO terdeteksi — konfirmasi Posko diperlukan saat Submit</span>
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Nopol akan langsung otomatis aktif di Jembatan Timbang Masuk
+                  </span>
+                )}
 
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setIsCheckInOpen(false)}
-                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg transition-colors"
+                    onClick={() => {
+                      setPendingExcessConfirm(null);
+                      setIsCheckInOpen(false);
+                    }}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                   >
                     Batal
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-sm flex items-center gap-1.5"
+                    className={`px-5 py-2 font-bold text-xs rounded-lg transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer ${
+                      activeFormQuotaCheck?.hasExcessAlert
+                        ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                        : 'bg-amber-500 hover:bg-amber-600 text-slate-950'
+                    }`}
                   >
-                    <span>SUBMIT</span>
+                    <span>{activeFormQuotaCheck?.hasExcessAlert ? 'SUBMIT (DENGAN PERINGATAN)' : 'SUBMIT'}</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Posko Saat Terdeteksi Kelebihan Rit Kirim / Qty PO */}
+      {pendingExcessConfirm && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4"
+          onClick={() => setPendingExcessConfirm(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="excess-po-confirm-title"
+            className="w-full max-w-lg rounded-2xl bg-white border-2 border-rose-400 shadow-2xl overflow-hidden text-slate-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 bg-rose-50 border-b border-rose-200 flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-xl bg-rose-600 text-white shrink-0">
+                  <AlertOctagon className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 id="excess-po-confirm-title" className="text-sm font-black text-rose-950 uppercase tracking-wide">
+                    Konfirmasi Peringatan Posko: Kelebihan Rit / Qty PO
+                  </h3>
+                  <p className="text-xs text-rose-800 mt-0.5">
+                    Armada <strong className="font-mono">{pendingExcessConfirm.tx.vehiclePlate}</strong> ({pendingExcessConfirm.tx.driverName}) melebihi batas terdaftar pada PO ini.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingExcessConfirm(null)}
+                className="p-1 text-rose-700 hover:text-rose-950 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3.5 text-xs">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500">Nomor PO:</span>
+                  <strong className="font-mono text-amber-800">{pendingExcessConfirm.check.poNumber}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500">Nama Supplier:</span>
+                  <strong className="text-slate-900 text-right">{pendingExcessConfirm.check.supplierName}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500">Nopol / Surat Jalan:</span>
+                  <strong className="font-mono text-slate-900">
+                    {pendingExcessConfirm.tx.vehiclePlate} · {pendingExcessConfirm.tx.suratJalanNumber} ({pendingExcessConfirm.tx.suratJalanWeight.toLocaleString('id-ID')} Kg)
+                  </strong>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-300 space-y-2">
+                <div className="text-[11px] font-black text-rose-900 uppercase">Detail Kelebihan Terdeteksi:</div>
+                <ul className="space-y-1.5 text-xs text-rose-950 font-semibold">
+                  {pendingExcessConfirm.check.alertReasons.map((reason, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <span>{reason}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="pt-2 border-t border-rose-200 text-[11px] text-rose-800 font-mono-num space-y-0.5">
+                  <div>
+                    Ritase: <strong>{pendingExcessConfirm.check.projectedRitCount} Rit</strong> (Terdaftar: {pendingExcessConfirm.check.registeredRitCount} Rit)
+                  </div>
+                  <div>
+                    Total Proyeksi Qty: <strong>{pendingExcessConfirm.check.projectedTotalKg.toLocaleString('id-ID')} Kg</strong> (Target PO: {pendingExcessConfirm.check.targetQtyKg.toLocaleString('id-ID')} Kg)
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                Pastikan Tim Posko telah mengonfirmasi kelebihan pengiriman ini kepada tim Procurement / PIC Pengadaan sebelum meloloskan armada masuk gerbang. Catatan peringatan akan otomatis direkam pada data Gate In.
+              </p>
+            </div>
+
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingExcessConfirm(null)}
+                className="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Batal & Cek Ulang Dokumen
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const summaryTag = `[PERINGATAN POSKO: ${pendingExcessConfirm.check.alertReasons.join('; ')}]`;
+                  const existingNote = (pendingExcessConfirm.tx.securityNotes || '').trim();
+                  const mergedNote = existingNote
+                    ? existingNote.includes('PERINGATAN POSKO')
+                      ? existingNote
+                      : `${existingNote} | ${summaryTag}`
+                    : summaryTag;
+                  finalizeCheckIn({
+                    ...pendingExcessConfirm.tx,
+                    securityNotes: mergedNote,
+                  });
+                }}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Tetap Catat Gate In (Konfirmasi Posko)</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

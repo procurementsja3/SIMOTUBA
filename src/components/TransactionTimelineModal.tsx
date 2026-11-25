@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { CoalTransaction } from '../types/coal';
 import { getOperationalTimeline, calculateFromFormattedTimes } from '../utils/timeUtils';
+import { formatDisplayTicketNumber } from '../utils/ticketUtils';
 
 interface TransactionTimelineModalProps {
   transaction: CoalTransaction;
@@ -331,7 +332,7 @@ export const TransactionTimelineModal: React.FC<TransactionTimelineModalProps> =
         {/* Sticky Footer */}
         <div className="shrink-0 p-3.5 sm:p-4 border-t border-slate-800 bg-slate-900/98 backdrop-blur-md flex items-center justify-between text-xs z-10">
           <span className="text-slate-600 font-mono text-[11px] truncate max-w-[240px] sm:max-w-none">
-            ID: {transaction.id} · Tiket: {transaction.ticketNumber} · Tgl Kedatangan: {transaction.gateInTime ? new Date(transaction.gateInTime).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}
+            ID: {transaction.id} · Tiket: {formatDisplayTicketNumber(transaction.ticketNumber)} · Tgl Kedatangan: {transaction.gateInTime ? new Date(transaction.gateInTime).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}
           </span>
           <button
             type="button"

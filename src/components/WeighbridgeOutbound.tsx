@@ -16,6 +16,7 @@ import {
 import { CoalTransaction, PurchaseOrder } from '../types/coal';
 import { WeighbridgeIndicator } from './WeighbridgeIndicator';
 import { calculateToleranceMetrics, validateWeighOutWeights } from '../utils/toleranceUtils';
+import { formatDisplayTicketNumber } from '../utils/ticketUtils';
 
 const getLocalDateStr = (d = new Date()) => {
   const year = d.getFullYear();
@@ -285,7 +286,7 @@ export const WeighbridgeOutbound: React.FC<WeighbridgeOutboundProps> = ({
                     <div>
                       <div className="text-sm font-bold text-slate-900">{activeTx.driverName} ({activeTx.transporterName})</div>
                       <div className="text-xs text-slate-600">
-                        PO: <strong className="text-amber-700 font-mono-num">{activeTx.poNumber}</strong> · Tiket: <strong className="text-slate-900 font-mono-num">{activeTx.ticketNumber}</strong>
+                        PO: <strong className="text-amber-700 font-mono-num">{activeTx.poNumber}</strong> · Tiket: <strong className="text-slate-900 font-mono-num">{formatDisplayTicketNumber(activeTx.ticketNumber)}</strong>
                       </div>
                     </div>
                   </div>

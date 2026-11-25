@@ -14,6 +14,7 @@ import {
   Scale
 } from 'lucide-react';
 import { CoalTransaction, PurchaseOrder, LabQCResults, VisualQC } from '../types/coal';
+import { formatDisplayTicketNumber } from '../utils/ticketUtils';
 
 interface QCLabCheckProps {
   transactions: CoalTransaction[];
@@ -453,7 +454,7 @@ export const QCLabCheck: React.FC<QCLabCheckProps> = ({
                             Antrean {activeTx.queueNumber}
                           </span>
                           <span className="px-2 py-0.5 bg-slate-100 text-slate-800 text-[10px] font-mono-num rounded-md border border-slate-300 shadow-xs">
-                            {activeTx.ticketNumber}
+                            {formatDisplayTicketNumber(activeTx.ticketNumber)}
                           </span>
                         </div>
                         <div className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">

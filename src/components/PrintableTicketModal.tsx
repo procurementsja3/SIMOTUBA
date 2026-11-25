@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Printer, X, CheckCircle2, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 import { CoalTransaction, PurchaseOrder } from '../types/coal';
 import { calculateDuration } from '../utils/timeUtils';
+import { formatDisplayTicketNumber } from '../utils/ticketUtils';
 
 interface PrintableTicketModalProps {
   transaction: CoalTransaction | null;
@@ -31,6 +32,7 @@ export const PrintableTicketModal: React.FC<PrintableTicketModalProps> = ({
   };
 
   const tolerancePct = purchaseOrder?.tolerancePercentage || 5;
+  const displayTicketNumber = formatDisplayTicketNumber(transaction.ticketNumber);
   const supplierDisplayName =
     purchaseOrder?.supplierName?.trim() ||
     transaction.supplierName?.trim() ||
@@ -77,7 +79,7 @@ export const PrintableTicketModal: React.FC<PrintableTicketModalProps> = ({
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-bold text-white">Dokumen Berita Acara In Out</span>
             <span className="font-mono-num text-xs bg-slate-800 text-amber-400 px-2 py-0.5 rounded border border-slate-700">
-              {transaction.ticketNumber}
+              {displayTicketNumber}
             </span>
           </div>
 
@@ -127,7 +129,7 @@ export const PrintableTicketModal: React.FC<PrintableTicketModalProps> = ({
               <div className="text-right shrink-0">
                 <div className="inline-block border-2 border-slate-900 px-3 py-1 text-center bg-slate-50">
                   <div className="text-[10px] font-bold uppercase text-slate-700">BERITA ACARA IN OUT</div>
-                  <div className="text-sm font-mono font-bold text-slate-900">{transaction.ticketNumber}</div>
+                  <div className="text-sm font-mono font-bold text-slate-900">{displayTicketNumber}</div>
                 </div>
                 <div className="text-[10px] text-slate-500 mt-1 font-mono">
                   Antrean: {transaction.queueNumber} · Status: {transaction.status}
@@ -435,7 +437,7 @@ export const PrintableTicketModal: React.FC<PrintableTicketModalProps> = ({
       {/* Sticky Bottom Actions Bar (Always visible while scrolling, hidden during print) */}
         <div className="shrink-0 p-3 sm:p-4 border-t border-slate-800 bg-slate-900/98 backdrop-blur-md flex items-center justify-between gap-3 print:hidden z-10">
           <div className="text-xs text-slate-400 font-mono-num hidden sm:block">
-            Tiket: <strong className="text-slate-200">{transaction.ticketNumber}</strong> · Plat: <strong className="text-amber-400">{transaction.vehiclePlate}</strong>
+            Tiket: <strong className="text-slate-200">{displayTicketNumber}</strong> · Plat: <strong className="text-amber-400">{transaction.vehiclePlate}</strong>
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             <button

@@ -21,6 +21,7 @@ import {
   SheetMutationConfirmRequest,
 } from './components/SheetMutationConfirmModal';
 import { storageService } from './services/storageService';
+import { evaluatePoQuotaStatus } from './utils/poQuotaUtils';
 import {
   googleSheetService,
   sheetsApiService,
@@ -1492,12 +1493,26 @@ export default function App() {
           ? 'BONGKAR'
           : finalNewTx.status;
 
+    const matchedPoForAlert = purchaseOrders.find((p) => p.id === finalNewTx.poId);
+    const gateInQuotaCheck = matchedPoForAlert
+      ? evaluatePoQuotaStatus(matchedPoForAlert, schedules, transactions, {
+          incomingWeightKg: Number(finalNewTx.suratJalanWeight || 0),
+          incomingRitCount: 1,
+          hasSelectedSchedule: Boolean(finalNewTx.scheduleId),
+        })
+      : null;
+
+    const excessNoteForAudit =
+      gateInQuotaCheck && gateInQuotaCheck.hasExcessAlert
+        ? ` · PERINGATAN: ${gateInQuotaCheck.alertReasons.join('; ')}`
+        : '';
+
     const auditEntry = buildAuditEntry(
       'CHECK_IN_GATE_IN',
       'TRANSACTION',
       finalNewTx.id,
       `Gate In ${finalNewTx.vehiclePlate} (${finalNewTx.driverName}) · Tiket ${finalNewTx.ticketNumber}`,
-      `PO: ${finalNewTx.poNumber} · Berat SJ: ${finalNewTx.suratJalanWeight} kg`
+      `PO: ${finalNewTx.poNumber} · Berat SJ: ${finalNewTx.suratJalanWeight} kg${excessNoteForAudit}`
     );
 
     const updatedTxs = [finalNewTx, ...transactions];
@@ -1528,7 +1543,15 @@ export default function App() {
     setSelectedScheduleForGateIn(null);
     setSelectedTxId(finalNewTx.id);
     setActiveTab('weigh-in');
-    showToast(`Check-In Pos Security selesai! Nopol ${finalNewTx.vehiclePlate} (${finalNewTx.driverName}) langsung masuk ke data Timbang Masuk.`);
+    if (gateInQuotaCheck && gateInQuotaCheck.hasExcessAlert) {
+      showToast(
+        `PERINGATAN POSKO: Gate In ${finalNewTx.vehiclePlate} (PO ${finalNewTx.poNumber}) dicatat dengan ${gateInQuotaCheck.alertReasons.join(' & ')}.`
+      );
+    } else {
+      showToast(
+        `Check-In Pos Security selesai! Nopol ${finalNewTx.vehiclePlate} (${finalNewTx.driverName}) langsung masuk ke data Timbang Masuk.`
+      );
+    }
 
     promptSheetMutation({
       title: `Simpan Gate In ${finalNewTx.vehiclePlate} ke Google Sheets?`,
