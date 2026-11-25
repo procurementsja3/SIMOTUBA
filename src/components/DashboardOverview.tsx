@@ -64,6 +64,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const [historyFilter, setHistoryFilter] = useState<'ALL' | 'COMPLETED' | 'IN_PROGRESS'>('ALL');
   const [historySearch, setHistorySearch] = useState('');
   const [historySupplierFilter, setHistorySupplierFilter] = useState('');
+  // Filter pencarian per kolom header pada tabel Durasi Waktu Riwayat Bongkar
+  const [histColPlate, setHistColPlate] = useState('');
+  const [histColRit, setHistColRit] = useState('');
+  const [histColStatus, setHistColStatus] = useState('');
+  const [histColDriver, setHistColDriver] = useState('');
+  const [histColPoSupplier, setHistColPoSupplier] = useState('');
+  const [histColDate, setHistColDate] = useState('');
+  const [histColTimeline, setHistColTimeline] = useState('');
   const [historyPage, setHistoryPage] = useState<number>(1);
   const HISTORY_PAGE_SIZE = 8;
 
@@ -336,18 +344,109 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       .sort((a, b) => a.name.localeCompare(b.name, 'id'));
   }, [purchaseOrders, schedules, transactions, baseFilteredHistoryTrucks]);
 
-  // Filter list for the history section (termasuk filter dropdown supplier)
+  const isAnyHistoryColFilterActive = Boolean(
+    histColPlate ||
+      histColRit ||
+      histColStatus ||
+      histColDriver ||
+      histColPoSupplier ||
+      histColDate ||
+      histColTimeline
+  );
+
+  const handleResetHistoryColFilters = () => {
+    setHistColPlate('');
+    setHistColRit('');
+    setHistColStatus('');
+    setHistColDriver('');
+    setHistColPoSupplier('');
+    setHistColDate('');
+    setHistColTimeline('');
+  };
+
+  // Filter list for the history section (termasuk filter dropdown supplier & filter per kolom)
   const filteredHistoryTrucks = useMemo(() => {
-    if (!historySupplierFilter) return baseFilteredHistoryTrucks;
-    return baseFilteredHistoryTrucks.filter(
-      (t) => (t.supplierName || '').trim() === historySupplierFilter
-    );
-  }, [baseFilteredHistoryTrucks, historySupplierFilter]);
+    return baseFilteredHistoryTrucks.filter((t) => {
+      if (historySupplierFilter && (t.supplierName || '').trim() !== historySupplierFilter) {
+        return false;
+      }
+      if (histColPlate.trim()) {
+        const q = histColPlate.toLowerCase().trim();
+        if (!(t.vehiclePlate || '').toLowerCase().includes(q)) return false;
+      }
+      if (histColRit.trim()) {
+        const q = histColRit.toLowerCase().trim();
+        const ritInfo = resolveTransactionRitInfo(t, transactions, schedules);
+        const combined = `${ritInfo.ritCategory} ${ritInfo.ritRemarks}`.toLowerCase();
+        if (!combined.includes(q)) return false;
+      }
+      if (histColStatus) {
+        if (histColStatus === 'BONGKAR') {
+          if (t.status !== 'BONGKAR' && t.status !== 'QC_CHECK') return false;
+        } else if (t.status !== histColStatus) {
+          return false;
+        }
+      }
+      if (histColDriver.trim()) {
+        const q = histColDriver.toLowerCase().trim();
+        const combined = `${t.driverName || ''} ${t.transporterName || ''}`.toLowerCase();
+        if (!combined.includes(q)) return false;
+      }
+      if (histColPoSupplier.trim()) {
+        const q = histColPoSupplier.toLowerCase().trim();
+        const combined = `${t.poNumber || ''} ${t.supplierName || ''}`.toLowerCase();
+        if (!combined.includes(q)) return false;
+      }
+      if (histColDate.trim()) {
+        const q = histColDate.toLowerCase().trim();
+        const formatted = t.gateInTime
+          ? new Date(t.gateInTime)
+              .toLocaleDateString('id-ID', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+              })
+              .toLowerCase()
+          : '';
+        const isoDate = (t.gateInTime || '').slice(0, 10).toLowerCase();
+        if (!formatted.includes(q) && !isoDate.includes(q)) return false;
+      }
+      if (histColTimeline.trim()) {
+        const q = histColTimeline.toLowerCase().trim();
+        const { totalDuration } = getOperationalTimeline(t);
+        if (!(totalDuration.text || '').toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [
+    baseFilteredHistoryTrucks,
+    historySupplierFilter,
+    histColPlate,
+    histColRit,
+    histColStatus,
+    histColDriver,
+    histColPoSupplier,
+    histColDate,
+    histColTimeline,
+    transactions,
+    schedules,
+  ]);
 
   // Reset pagination to page 1 when filters change
   useEffect(() => {
     setHistoryPage(1);
-  }, [historyFilter, historySearch, historySupplierFilter]);
+  }, [
+    historyFilter,
+    historySearch,
+    historySupplierFilter,
+    histColPlate,
+    histColRit,
+    histColStatus,
+    histColDriver,
+    histColPoSupplier,
+    histColDate,
+    histColTimeline,
+  ]);
 
   const totalHistoryPages = Math.max(1, Math.ceil(filteredHistoryTrucks.length / HISTORY_PAGE_SIZE));
   const safeHistoryPage = Math.min(historyPage, totalHistoryPages);
@@ -981,46 +1080,20 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         </div>
 
         {/* List of Vehicles with Expandable Sub-Process Breakdown (8 data per halaman + Pagination) */}
-        {filteredHistoryTrucks.length === 0 ? (
+        {transactions.length === 0 ? (
           <div className="text-center py-10 bg-slate-950/40 border border-dashed border-slate-800 rounded-xl text-slate-500">
             <Clock className="w-10 h-10 mx-auto mb-2 text-slate-600" />
-            {transactions.length === 0 ? (
-              <>
-                <p className="text-sm font-semibold text-slate-300">Belum ada riwayat transaksi armada pada sistem.</p>
-                <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                  Saat armada baru dicatat di Pos Security (Gate In & Gate Out) dan melewati stasiun timbang, data waktu proses dan breakdown tiap tahapan akan otomatis tercatat dan tersaji di sini secara real-time.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => onNavigate('security')}
-                  className="mt-4 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer"
-                >
-                  Mulai Input Armada di Pos Security
-                </button>
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-semibold text-slate-700">
-                  Tidak ada data riwayat bongkar yang sesuai dengan filter.
-                </p>
-                <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                  {historySupplierFilter
-                    ? `Belum ada transaksi bongkar untuk supplier "${historySupplierFilter}" pada filter saat ini.`
-                    : 'Coba ubah kata kunci pencarian atau pilih status/supplier lain.'}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setHistorySupplierFilter('');
-                    setHistorySearch('');
-                    setHistoryFilter('ALL');
-                  }}
-                  className="mt-4 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-xs cursor-pointer"
-                >
-                  Reset Semua Filter
-                </button>
-              </>
-            )}
+            <p className="text-sm font-semibold text-slate-300">Belum ada riwayat transaksi armada pada sistem.</p>
+            <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+              Saat armada baru dicatat di Pos Security (Gate In & Gate Out) dan melewati stasiun timbang, data waktu proses dan breakdown tiap tahapan akan otomatis tercatat dan tersaji di sini secara real-time.
+            </p>
+            <button
+              type="button"
+              onClick={() => onNavigate('security')}
+              className="mt-4 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer"
+            >
+              Mulai Input Armada di Pos Security
+            </button>
           </div>
         ) : (
           <div className="space-y-3">
@@ -1037,9 +1110,217 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     <th className="py-3 px-3 whitespace-nowrap">Timeline</th>
                     <th className="py-3 px-3 text-right whitespace-nowrap">Aksi</th>
                   </tr>
+                  {/* Baris Pencarian Per Kolom Header */}
+                  <tr className="bg-slate-50 border-t border-slate-200 font-normal normal-case tracking-normal">
+                    {/* 1. Nopol */}
+                    <th className="px-2 py-2">
+                      <div className="relative flex items-center">
+                        <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={histColPlate}
+                          onChange={(e) => setHistColPlate(e.target.value)}
+                          placeholder="Cari Nopol..."
+                          className="w-full min-w-[105px] pl-6 pr-5 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                        />
+                        {histColPlate && (
+                          <button
+                            type="button"
+                            onClick={() => setHistColPlate('')}
+                            className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                            title="Hapus filter nopol"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </th>
+
+                    {/* 2. RIT */}
+                    <th className="px-2 py-2">
+                      <div className="relative flex items-center">
+                        <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={histColRit}
+                          onChange={(e) => setHistColRit(e.target.value)}
+                          placeholder="Cari RIT..."
+                          className="w-full min-w-[90px] pl-6 pr-5 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                        />
+                        {histColRit && (
+                          <button
+                            type="button"
+                            onClick={() => setHistColRit('')}
+                            className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                            title="Hapus filter RIT"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </th>
+
+                    {/* 3. Status */}
+                    <th className="px-2 py-2">
+                      <select
+                        value={histColStatus}
+                        onChange={(e) => setHistColStatus(e.target.value)}
+                        className="w-full min-w-[130px] px-2 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs cursor-pointer"
+                      >
+                        <option value="">Semua Status</option>
+                        <option value="COMPLETED">Selesai (Keluar)</option>
+                        <option value="GATE_IN">Gate In</option>
+                        <option value="TIMBANG_MASUK">Timbang Masuk</option>
+                        <option value="BONGKAR">Proses Bongkar</option>
+                        <option value="TIMBANG_KELUAR">Timbang Keluar</option>
+                        <option value="GATE_OUT">Menunggu Gate Out</option>
+                        <option value="REJECTED">Ditolak / Retur</option>
+                      </select>
+                    </th>
+
+                    {/* 4. Nama Driver */}
+                    <th className="px-2 py-2">
+                      <div className="relative flex items-center">
+                        <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={histColDriver}
+                          onChange={(e) => setHistColDriver(e.target.value)}
+                          placeholder="Cari Driver..."
+                          className="w-full min-w-[110px] pl-6 pr-5 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                        />
+                        {histColDriver && (
+                          <button
+                            type="button"
+                            onClick={() => setHistColDriver('')}
+                            className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                            title="Hapus filter driver"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </th>
+
+                    {/* 5. PO / Supplier */}
+                    <th className="px-2 py-2">
+                      <div className="relative flex items-center">
+                        <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={histColPoSupplier}
+                          onChange={(e) => setHistColPoSupplier(e.target.value)}
+                          placeholder="Cari PO / Supplier..."
+                          className="w-full min-w-[140px] pl-6 pr-5 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                        />
+                        {histColPoSupplier && (
+                          <button
+                            type="button"
+                            onClick={() => setHistColPoSupplier('')}
+                            className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                            title="Hapus filter PO / Supplier"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </th>
+
+                    {/* 6. Tgl Kedatangan */}
+                    <th className="px-2 py-2">
+                      <div className="relative flex items-center">
+                        <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={histColDate}
+                          onChange={(e) => setHistColDate(e.target.value)}
+                          placeholder="Cari Tanggal..."
+                          className="w-full min-w-[105px] pl-6 pr-5 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                        />
+                        {histColDate && (
+                          <button
+                            type="button"
+                            onClick={() => setHistColDate('')}
+                            className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                            title="Hapus filter tanggal"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </th>
+
+                    {/* 7. Timeline */}
+                    <th className="px-2 py-2">
+                      <div className="relative flex items-center">
+                        <Search className="w-3 h-3 text-slate-400 absolute left-2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={histColTimeline}
+                          onChange={(e) => setHistColTimeline(e.target.value)}
+                          placeholder="Cari Durasi..."
+                          className="w-full min-w-[105px] pl-6 pr-5 py-1 text-[11px] rounded border border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs"
+                        />
+                        {histColTimeline && (
+                          <button
+                            type="button"
+                            onClick={() => setHistColTimeline('')}
+                            className="absolute right-1 text-slate-400 hover:text-slate-700 text-xs px-0.5 cursor-pointer"
+                            title="Hapus filter durasi"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </th>
+
+                    {/* 8. Aksi / Reset Filter */}
+                    <th className="px-2 py-2 text-right">
+                      {isAnyHistoryColFilterActive ? (
+                        <button
+                          type="button"
+                          onClick={handleResetHistoryColFilters}
+                          className="inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 rounded shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
+                          title="Reset semua filter pencarian kolom"
+                        >
+                          <X className="w-3 h-3" />
+                          <span>Reset</span>
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-medium">Filter</span>
+                      )}
+                    </th>
+                  </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {paginatedHistoryTrucks.map((tx) => {
+                  {filteredHistoryTrucks.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-10 px-4 text-center bg-slate-50/50">
+                        <Clock className="w-8 h-8 mx-auto mb-2 text-slate-400" />
+                        <p className="text-sm font-semibold text-slate-700">
+                          Tidak ada data riwayat bongkar yang sesuai dengan filter pencarian.
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                          {historySupplierFilter
+                            ? `Belum ada transaksi bongkar untuk supplier "${historySupplierFilter}" pada filter saat ini.`
+                            : 'Coba ubah kata kunci pencarian pada kolom di atas atau reset semua filter.'}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHistorySupplierFilter('');
+                            setHistorySearch('');
+                            setHistoryFilter('ALL');
+                            handleResetHistoryColFilters();
+                          }}
+                          className="mt-3 px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-xs cursor-pointer"
+                        >
+                          Reset Semua Filter
+                        </button>
+                      </td>
+                    </tr>
+                  ) : (
+                  paginatedHistoryTrucks.map((tx) => {
                     const { checkpoints, totalDuration } = getOperationalTimeline(tx);
                     const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
                     const isExpanded = expandedTxId === tx.id;
@@ -1430,12 +1711,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                         )}
                       </React.Fragment>
                     );
-                  })}
+                  })
+                  )}
                 </tbody>
               </table>
             </div>
 
             {/* Pagination Footer Bar (8 Data per Halaman) */}
+            {filteredHistoryTrucks.length > 0 && (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 mt-2 border-t border-slate-200">
               <div className="text-xs text-slate-600 font-mono-num">
                 Menampilkan{' '}
@@ -1505,6 +1788,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 </div>
               )}
             </div>
+            )}
           </div>
         )}
       </div>
