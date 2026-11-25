@@ -573,6 +573,23 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
       .filter((res) => res.hasExcessAlert);
   }, [purchaseOrders, schedules, transactions]);
 
+  const parseSuratJalanWeightInput = (
+    raw: string | number
+  ): { valid: boolean; kg: number } => {
+    const str = String(raw ?? '').trim();
+    if (!str) return { valid: false, kg: 0 };
+    if (str === '-') return { valid: true, kg: 0 };
+    const normalized = str.replace(/,/g, '.');
+    if (!/^\d+(\.\d+)?$/.test(normalized)) {
+      return { valid: false, kg: 0 };
+    }
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return { valid: false, kg: 0 };
+    }
+    return { valid: true, kg: parsed };
+  };
+
   // Notifikasi Real-Time saat Tim Posko melakukan pengecekan / input pada Formulir Gate-In
   const activeFormPo = useMemo(
     () => purchaseOrders.find((p) => p.id === formData.poId) || null,
@@ -582,7 +599,7 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
   const activeFormQuotaCheck = useMemo(() => {
     if (!activeFormPo) return null;
     return evaluatePoQuotaStatus(activeFormPo, schedules, transactions, {
-      incomingWeightKg: Number(formData.suratJalanWeightKg) || 0,
+      incomingWeightKg: parseSuratJalanWeightInput(formData.suratJalanWeightKg).kg,
       incomingRitCount: 1,
       hasSelectedSchedule: Boolean(formData.scheduleId),
     });
@@ -619,6 +636,12 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
     }
     if (!formData.vehiclePlate.trim() || !formData.driverName.trim()) {
       setCheckInError('Nomor Polisi (Plat Truk) dan Nama Driver wajib diisi.');
+      return;
+    }
+
+    const parsedSjWeight = parseSuratJalanWeightInput(formData.suratJalanWeightKg);
+    if (!parsedSjWeight.valid) {
+      setCheckInError('Berat Muatan di Surat Jalan wajib diisi angka (minimal 0) atau tanda "-".');
       return;
     }
 
@@ -692,7 +715,7 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
       suratJalanNumber: formData.suratJalanNumber,
       suratJalanDate: formData.scheduledDeliveryDate || formData.gateInDate || getLocalDateStr(),
       scheduledDeliveryDate: formData.scheduledDeliveryDate || formData.gateInDate || getLocalDateStr(),
-      suratJalanWeight: Number(formData.suratJalanWeightKg) || 0,
+      suratJalanWeight: parsedSjWeight.kg,
       suratJalanVerified: false,
       ritCategory: matchedRit?.ritCategory,
       ritRemarks: matchedRit?.ritRemarks,
@@ -711,7 +734,7 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
 
     // Validasi Kelebihan Rit Kirim & Qty PO: minta konfirmasi eksplisit dari Tim Posko
     const submitQuotaCheck = evaluatePoQuotaStatus(selectedPo, schedules, transactions, {
-      incomingWeightKg: Number(formData.suratJalanWeightKg) || 0,
+      incomingWeightKg: parsedSjWeight.kg,
       incomingRitCount: 1,
       hasSelectedSchedule: Boolean(formData.scheduleId),
     });
@@ -1122,7 +1145,10 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                           <div className="text-xs text-slate-300 space-y-1 mb-3">
                             <div>Driver: <strong className="text-slate-900">{tx.driverName}</strong></div>
                             <div>PO: <span className="font-mono text-amber-300">{tx.poNumber}</span> · <span className="text-slate-600">{tx.supplierName}</span></div>
-                            <div>Surat Jalan: <span className="font-mono text-slate-300">{tx.suratJalanNumber}</span> ({(tx.suratJalanWeight / 1000).toFixed(2)} Ton)</div>
+                            <div>
+                              Surat Jalan: <span className="font-mono text-slate-300">{tx.suratJalanNumber || '-'}</span>{' '}
+                              ({tx.suratJalanWeight > 0 ? `${(tx.suratJalanWeight / 1000).toFixed(2)} Ton` : '-'})
+                            </div>
                             <div className="text-[11px] text-slate-400 flex items-center gap-1 font-mono-num pt-1 border-t border-slate-900">
                               <Calendar className="w-3 h-3 text-amber-500" />
                               <span>{new Date(tx.gateInTime).toLocaleDateString('id-ID')}</span>
@@ -1429,7 +1455,9 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                             <td className="py-2.5 px-3 whitespace-nowrap">
                               <div className="font-mono font-semibold text-slate-800">{tx.suratJalanNumber || '-'}</div>
                               <div className="text-[10px] text-emerald-700 font-bold">
-                                {Number(tx.suratJalanWeight || 0).toLocaleString('id-ID')} Kg ({((tx.suratJalanWeight || 0) / 1000).toFixed(2)} T)
+                                {Number(tx.suratJalanWeight || 0) > 0
+                                  ? `${Number(tx.suratJalanWeight).toLocaleString('id-ID')} Kg (${(Number(tx.suratJalanWeight) / 1000).toFixed(2)} T)`
+                                  : '-'}
                               </div>
                             </td>
                             <td className="py-2.5 px-3 font-sans text-slate-700 whitespace-nowrap">
@@ -2588,17 +2616,26 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                       Berat Muatan di Surat Jalan (kg) *
                     </label>
                     <input
-                      type="number"
-                      min={1}
+                      type="text"
+                      inputMode="decimal"
                       required
-                      placeholder="Masukkan berat muatan (Kg)..."
+                      placeholder="Isi berat (Kg), 0, atau -"
                       value={formData.suratJalanWeightKg}
                       onChange={(e) => {
-                        let val = e.target.value;
-                        if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
-                          val = val.replace(/^0+/, '');
+                        const raw = e.target.value.trim();
+                        if (raw === '' || raw === '-') {
+                          setFormData({ ...formData, suratJalanWeightKg: raw });
+                          return;
                         }
-                        setFormData({ ...formData, suratJalanWeightKg: val });
+                        let cleaned = raw.replace(/[^0-9.]/g, '');
+                        const parts = cleaned.split('.');
+                        if (parts.length > 2) {
+                          cleaned = `${parts[0]}.${parts.slice(1).join('')}`;
+                        }
+                        if (cleaned.length > 1 && cleaned.startsWith('0') && !cleaned.startsWith('0.')) {
+                          cleaned = cleaned.replace(/^0+/, '') || '0';
+                        }
+                        setFormData({ ...formData, suratJalanWeightKg: cleaned });
                       }}
                       className={`w-full bg-slate-900 border rounded px-3 py-1.5 text-xs text-white font-mono-num placeholder:text-slate-600 focus:outline-none ${
                         activeFormQuotaCheck?.isExcessQty
@@ -2606,6 +2643,9 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                           : 'border-slate-700 focus:border-amber-500'
                       }`}
                     />
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      Bisa diisi angka berat (Kg), angka <span className="font-mono font-semibold text-slate-700">0</span>, atau tanda <span className="font-mono font-semibold text-slate-700">-</span> jika berat SJ belum tercantum.
+                    </p>
                     {activeFormQuotaCheck?.isExcessQty && (
                       <p className="text-[10px] font-bold text-rose-700 mt-1 flex items-center gap-1 font-mono-num">
                         <AlertTriangle className="w-3 h-3 shrink-0" />
