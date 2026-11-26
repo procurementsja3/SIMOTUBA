@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { PurchaseOrder, ArrivalSchedule, CoalTransaction, ActiveTab } from '../types/coal';
 import { calculateDuration, getOperationalTimeline } from '../utils/timeUtils';
-import { resolveTransactionRitInfo, getScheduleRitDetails } from '../utils/ritUtils';
+import { resolveTransactionRitInfo } from '../utils/ritUtils';
 import { formatDisplayTicketNumber } from '../utils/ticketUtils';
 import { TransactionTimelineModal } from './TransactionTimelineModal';
 import { CoalReceivingHistoricalSection } from './CoalReceivingHistoricalSection';
@@ -75,10 +75,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const [historyPage, setHistoryPage] = useState<number>(1);
   const HISTORY_PAGE_SIZE = 8;
 
-  // Filter khusus untuk tabel Monitoring Penerimaan Melebihi Toleransi (> 5%)
-  const [toleranceTypeFilter, setToleranceTypeFilter] = useState<'ALL' | 'EXCESS_SHRINKAGE' | 'SURPLUS'>('ALL');
+  // Filter khusus untuk tabel Monitoring Outstanding PO & Toleransi (+/- 5%)
+  const [toleranceTypeFilter, setToleranceTypeFilter] = useState<'ALL' | 'UNDER_5' | 'WITHIN_5' | 'OVER_5'>('ALL');
   const [toleranceSupplierFilter, setToleranceSupplierFilter] = useState<string>('');
   const [tolerancePage, setTolerancePage] = useState<number>(1);
+  const [expandedPoToleranceId, setExpandedPoToleranceId] = useState<string | null>(null);
   const TOLERANCE_PAGE_SIZE = 10;
 
   const [kpiScope, setKpiScope] = useState<'TODAY' | 'ALL'>('ALL');
@@ -252,165 +253,197 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     [transactions]
   );
 
-  // Daftar Khusus: Penerimaan Batubara yang Melebihi Toleransi 5% (Target Kuota vs Berat Netto Penerimaan)
-  const outOfToleranceReceivings = useMemo(() => {
-    const TOLERANCE_THRESHOLD_PCT = 5;
-    const DEFAULT_TARGET_QUOTA_KG = 30000;
+  // Monitoring Outstanding PO & Toleransi (+/- 5%): Akumulasi Netto Timbang Aktual vs QTY PO Keseluruhan
+  const poOutstandingToleranceList = useMemo(() => {
+    const DEFAULT_TOLERANCE_PCT = 5;
 
-    const getScheduleQuotaKg = (sch: ArrivalSchedule): number => {
-      const rawKg = Number(sch.estimatedTonnage || 0);
-      if (rawKg <= 0) return 0;
-      const trucks = Math.max(1, Number(sch.estimatedTruckCount || 1));
-      return Math.round(rawKg / trucks);
+    const getTxActualNettoKg = (tx: CoalTransaction): number => {
+      if (typeof tx.nettoWeight === 'number' && tx.nettoWeight > 0) return tx.nettoWeight;
+      if (tx.grossWeight && tx.tareWeight && tx.grossWeight > tx.tareWeight) {
+        return tx.grossWeight - tx.tareWeight;
+      }
+      return (tx.nettoTons || 0) * 1000;
     };
 
-    const resolveTargetQuotaKg = (tx: CoalTransaction, ritNumber: number): number => {
-      if (tx.scheduleId) {
-        const directSch = schedules.find((s) => s.id === tx.scheduleId);
-        if (directSch) {
-          const kg = getScheduleQuotaKg(directSch);
-          if (kg > 0) return kg;
-        }
-      }
+    return purchaseOrders
+      .map((po) => {
+        const targetQtyKg = Number(po.targetTonnage || 0);
+        const tolPct =
+          Number(po.tolerancePercentage) > 0 ? Number(po.tolerancePercentage) : DEFAULT_TOLERANCE_PCT;
+        const minAllowedKg = targetQtyKg * (1 - tolPct / 100);
+        const maxAllowedKg = targetQtyKg * (1 + tolPct / 100);
 
-      const normPoNum = (tx.poNumber || '').trim().toLowerCase();
-      const samePoSchedules = schedules.filter((s) => {
-        if (s.status === 'CANCELLED') return false;
-        if (tx.poId && s.poId === tx.poId) return true;
-        return Boolean(normPoNum) && (s.poNumber || '').trim().toLowerCase() === normPoNum;
-      });
+        const normPoNum = (po.poNumber || '').trim().toLowerCase();
 
-      if (samePoSchedules.length > 0) {
-        const byRit = samePoSchedules.find(
-          (s) => getScheduleRitDetails(s, schedules).ritNumber === ritNumber && getScheduleQuotaKg(s) > 0
-        );
-        if (byRit) return getScheduleQuotaKg(byRit);
-
-        const txDate = (tx.scheduledDeliveryDate || tx.gateInTime || '').slice(0, 10);
-        if (txDate) {
-          const byDate = samePoSchedules.find(
-            (s) => (s.etaDateTime || '').slice(0, 10) === txDate && getScheduleQuotaKg(s) > 0
+        // Ambil seluruh transaksi non-REJECTED milik PO ini yang sudah memiliki Netto timbang aktual
+        const matchedReceiptsRaw = transactions
+          .filter((tx) => {
+            if (tx.status === 'REJECTED') return false;
+            const samePo =
+              (po.id && tx.poId === po.id) ||
+              (Boolean(normPoNum) && (tx.poNumber || '').trim().toLowerCase() === normPoNum);
+            if (!samePo) return false;
+            return getTxActualNettoKg(tx) > 0;
+          })
+          .sort(
+            (a, b) =>
+              new Date(a.gateInTime || a.weighOutTime || 0).getTime() -
+              new Date(b.gateInTime || b.weighOutTime || 0).getTime()
           );
-          if (byDate) return getScheduleQuotaKg(byDate);
+
+        let runningNettoKg = 0;
+        const receiptsChronological = matchedReceiptsRaw.map((tx) => {
+          const nettoKg = getTxActualNettoKg(tx);
+          runningNettoKg += nettoKg;
+          const remainingAfterKg = targetQtyKg - runningNettoKg;
+          const remainingAfterPct = targetQtyKg > 0 ? (remainingAfterKg / targetQtyKg) * 100 : 0;
+          const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
+          return {
+            tx,
+            nettoKg,
+            cumulativeNettoKg: runningNettoKg,
+            remainingAfterKg,
+            remainingAfterPct,
+            ritInfo,
+          };
+        });
+
+        const receiptsNewestFirst = [...receiptsChronological].reverse();
+
+        const actualNettoKg =
+          receiptsChronological.length > 0
+            ? runningNettoKg
+            : Math.max(0, Number(po.receivedTonnage || 0));
+
+        const remainingKg = targetQtyKg - actualNettoKg; // > 0 berarti masih kurang/outstanding; < 0 berarti melebihi QTY PO
+        const varianceKg = actualNettoKg - targetQtyKg;  // negatif = kurang dari PO; positif = lebih dari PO
+        const realizationPct = targetQtyKg > 0 ? (actualNettoKg / targetQtyKg) * 100 : 0;
+        const variancePct = targetQtyKg > 0 ? (varianceKg / targetQtyKg) * 100 : 0;
+
+        let toleranceBand: 'UNDER_5' | 'WITHIN_5' | 'OVER_5' = 'UNDER_5';
+        if (targetQtyKg > 0) {
+          if (variancePct > tolPct) {
+            toleranceBand = 'OVER_5';
+          } else if (Math.abs(variancePct) <= tolPct) {
+            toleranceBand = 'WITHIN_5';
+          } else {
+            toleranceBand = 'UNDER_5';
+          }
         }
 
-        const firstValid = samePoSchedules.find((s) => getScheduleQuotaKg(s) > 0);
-        if (firstValid) return getScheduleQuotaKg(firstValid);
-      }
+        const needToMinTolKg = Math.max(0, minAllowedKg - actualNettoKg);
+        const excessOverMaxTolKg = Math.max(0, actualNettoKg - maxAllowedKg);
+        const excessOverMaxTolPct = Math.max(0, variancePct - tolPct);
 
-      return DEFAULT_TARGET_QUOTA_KG;
-    };
+        const scheduledRitCount = schedules.filter((s) => {
+          if (s.status === 'CANCELLED') return false;
+          if (po.id && s.poId === po.id) return true;
+          return Boolean(normPoNum) && (s.poNumber || '').trim().toLowerCase() === normPoNum;
+        }).length;
 
-    return transactions
-      .filter((tx) => tx.status !== 'REJECTED')
-      .map((tx) => {
-        const nettoKg =
-          typeof tx.nettoWeight === 'number' && tx.nettoWeight > 0
-            ? tx.nettoWeight
-            : tx.grossWeight && tx.tareWeight && tx.grossWeight > tx.tareWeight
-              ? tx.grossWeight - tx.tareWeight
-              : (tx.nettoTons || 0) * 1000;
-
-        if (nettoKg <= 0) return null;
-
-        const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
-        const targetQuotaKg = resolveTargetQuotaKg(tx, ritInfo.ritNumber);
-        if (targetQuotaKg <= 0) return null;
-
-        const diffKg = nettoKg - targetQuotaKg;
-        const tolerancePct = Number(((diffKg / targetQuotaKg) * 100).toFixed(2));
-        const po =
-          (tx.poId ? purchaseOrders.find((p) => p.id === tx.poId) : undefined) ||
-          purchaseOrders.find(
-            (p) => (p.poNumber || '').trim().toLowerCase() === (tx.poNumber || '').trim().toLowerCase()
-          );
-        const poTolerancePct = Number(po?.tolerancePercentage) > 0 ? Number(po!.tolerancePercentage) : TOLERANCE_THRESHOLD_PCT;
-        const effectiveLimitPct = Math.min(TOLERANCE_THRESHOLD_PCT, poTolerancePct);
-
-        if (Math.abs(tolerancePct) <= effectiveLimitPct) return null;
-
-        const alertType: 'EXCESS_SHRINKAGE' | 'SURPLUS' =
-          tolerancePct < -effectiveLimitPct ? 'EXCESS_SHRINKAGE' : 'SURPLUS';
-        const excessPct = Math.max(0, Math.abs(tolerancePct) - effectiveLimitPct);
-        const excessKg = Math.max(0, Math.abs(diffKg) - targetQuotaKg * (effectiveLimitPct / 100));
+        const lastDeliveryIso =
+          receiptsNewestFirst[0]?.tx.gateInTime || receiptsNewestFirst[0]?.tx.weighOutTime || '';
 
         return {
-          tx,
-          targetQuotaKg,
-          nettoKg,
-          diffKg,
-          tolerancePct,
-          effectiveLimitPct,
-          alertType,
-          excessPct,
-          excessKg,
-          ritInfo,
+          po,
+          targetQtyKg,
+          tolPct,
+          minAllowedKg,
+          maxAllowedKg,
+          actualNettoKg,
+          remainingKg,
+          varianceKg,
+          realizationPct,
+          variancePct,
+          toleranceBand,
+          needToMinTolKg,
+          excessOverMaxTolKg,
+          excessOverMaxTolPct,
+          receivedRitCount: receiptsChronological.length,
+          scheduledRitCount,
+          lastDeliveryIso,
+          receipts: receiptsNewestFirst,
         };
       })
-      .filter((item): item is NonNullable<typeof item> => item !== null)
-      .sort(
-        (a, b) =>
-          new Date(b.tx.gateInTime || b.tx.weighOutTime || 0).getTime() -
-          new Date(a.tx.gateInTime || a.tx.weighOutTime || 0).getTime()
-      );
-  }, [transactions, purchaseOrders, schedules]);
+      .sort((a, b) => {
+        const priority: Record<'OVER_5' | 'UNDER_5' | 'WITHIN_5', number> = {
+          OVER_5: 0,
+          UNDER_5: 1,
+          WITHIN_5: 2,
+        };
+        if (priority[a.toleranceBand] !== priority[b.toleranceBand]) {
+          return priority[a.toleranceBand] - priority[b.toleranceBand];
+        }
+        const timeA = new Date(a.lastDeliveryIso || a.po.createdAt || a.po.contractDate || 0).getTime();
+        const timeB = new Date(b.lastDeliveryIso || b.po.createdAt || b.po.contractDate || 0).getTime();
+        return timeB - timeA;
+      });
+  }, [purchaseOrders, transactions, schedules]);
 
   const toleranceSupplierOptions = useMemo(() => {
     const set = new Set<string>();
-    outOfToleranceReceivings.forEach((item) => {
-      const name = (item.tx.supplierName || '').trim();
+    poOutstandingToleranceList.forEach((item) => {
+      const name = (item.po.supplierName || '').trim();
       if (name) set.add(name);
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'id'));
-  }, [outOfToleranceReceivings]);
+  }, [poOutstandingToleranceList]);
 
-  const filteredOutOfToleranceReceivings = useMemo(() => {
-    return outOfToleranceReceivings.filter((item) => {
-      if (toleranceTypeFilter !== 'ALL' && item.alertType !== toleranceTypeFilter) {
+  const filteredPoToleranceList = useMemo(() => {
+    return poOutstandingToleranceList.filter((item) => {
+      if (toleranceTypeFilter !== 'ALL' && item.toleranceBand !== toleranceTypeFilter) {
         return false;
       }
       if (
         toleranceSupplierFilter &&
-        (item.tx.supplierName || '').trim() !== toleranceSupplierFilter
+        (item.po.supplierName || '').trim() !== toleranceSupplierFilter
       ) {
         return false;
       }
       return true;
     });
-  }, [outOfToleranceReceivings, toleranceTypeFilter, toleranceSupplierFilter]);
+  }, [poOutstandingToleranceList, toleranceTypeFilter, toleranceSupplierFilter]);
 
   useEffect(() => {
     setTolerancePage(1);
-  }, [toleranceTypeFilter, toleranceSupplierFilter, outOfToleranceReceivings.length]);
+  }, [toleranceTypeFilter, toleranceSupplierFilter, poOutstandingToleranceList.length]);
 
   const toleranceTotalPages = Math.max(
     1,
-    Math.ceil(filteredOutOfToleranceReceivings.length / TOLERANCE_PAGE_SIZE)
+    Math.ceil(filteredPoToleranceList.length / TOLERANCE_PAGE_SIZE)
   );
   const safeTolerancePage = Math.min(tolerancePage, toleranceTotalPages);
   const toleranceStartIndex = (safeTolerancePage - 1) * TOLERANCE_PAGE_SIZE;
   const toleranceEndIndex = Math.min(
     toleranceStartIndex + TOLERANCE_PAGE_SIZE,
-    filteredOutOfToleranceReceivings.length
+    filteredPoToleranceList.length
   );
-  const paginatedOutOfToleranceReceivings = useMemo(
-    () => filteredOutOfToleranceReceivings.slice(toleranceStartIndex, toleranceEndIndex),
-    [filteredOutOfToleranceReceivings, toleranceStartIndex, toleranceEndIndex]
+  const paginatedPoToleranceList = useMemo(
+    () => filteredPoToleranceList.slice(toleranceStartIndex, toleranceEndIndex),
+    [filteredPoToleranceList, toleranceStartIndex, toleranceEndIndex]
   );
 
-  const outOfToleranceStats = useMemo(() => {
-    const shrinkageCount = outOfToleranceReceivings.filter(
-      (i) => i.alertType === 'EXCESS_SHRINKAGE'
-    ).length;
-    const surplusCount = outOfToleranceReceivings.filter(
-      (i) => i.alertType === 'SURPLUS'
-    ).length;
-    const totalExcessKg = outOfToleranceReceivings.reduce(
-      (sum, i) => sum + i.excessKg,
+  const poToleranceStats = useMemo(() => {
+    const totalTargetKg = poOutstandingToleranceList.reduce((sum, i) => sum + i.targetQtyKg, 0);
+    const totalActualNettoKg = poOutstandingToleranceList.reduce((sum, i) => sum + i.actualNettoKg, 0);
+    const totalOutstandingKg = poOutstandingToleranceList.reduce(
+      (sum, i) => sum + Math.max(0, i.remainingKg),
       0
     );
-    return { shrinkageCount, surplusCount, totalExcessKg };
-  }, [outOfToleranceReceivings]);
+    const under5Count = poOutstandingToleranceList.filter((i) => i.toleranceBand === 'UNDER_5').length;
+    const within5Count = poOutstandingToleranceList.filter((i) => i.toleranceBand === 'WITHIN_5').length;
+    const over5Count = poOutstandingToleranceList.filter((i) => i.toleranceBand === 'OVER_5').length;
+    const overallPct = totalTargetKg > 0 ? (totalActualNettoKg / totalTargetKg) * 100 : 0;
+    return {
+      totalTargetKg,
+      totalActualNettoKg,
+      totalOutstandingKg,
+      under5Count,
+      within5Count,
+      over5Count,
+      overallPct,
+    };
+  }, [poOutstandingToleranceList]);
 
   // Compute sub-process averages across completed transactions (QC-PA excluded from process duration)
   const subProcessAverages = useMemo(() => {
@@ -909,27 +942,33 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* MONITORING KHUSUS: PENERIMAAN MELEBIHI TOLERANSI SUSUT (> 5%)             */}
+      {/* MONITORING OUTSTANDING PO & TOLERANSI (+/- 5%): NETTO AKTUAL VS QTY PO    */}
       {/* ========================================================================= */}
       <div
         className={`bg-white rounded-xl p-5 shadow-xs space-y-4 border-2 ${
-          outOfToleranceReceivings.length > 0
+          poToleranceStats.over5Count > 0
             ? 'border-rose-300'
-            : 'border-slate-300'
+            : poToleranceStats.under5Count > 0
+              ? 'border-amber-300'
+              : 'border-emerald-300'
         }`}
       >
         {/* Header Judul Khusus */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 pb-3 border-b border-slate-200">
           <div className="flex items-start gap-3">
             <div
               className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 border ${
-                outOfToleranceReceivings.length > 0
+                poToleranceStats.over5Count > 0
                   ? 'bg-rose-50 border-rose-300'
-                  : 'bg-emerald-50 border-emerald-300'
+                  : poToleranceStats.under5Count > 0
+                    ? 'bg-amber-50 border-amber-300'
+                    : 'bg-emerald-50 border-emerald-300'
               }`}
             >
-              {outOfToleranceReceivings.length > 0 ? (
+              {poToleranceStats.over5Count > 0 ? (
                 <AlertTriangle className="w-5 h-5 text-rose-600" />
+              ) : poToleranceStats.under5Count > 0 ? (
+                <Scale className="w-5 h-5 text-amber-600" />
               ) : (
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
               )}
@@ -937,72 +976,87 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-base font-black text-slate-900 tracking-wide uppercase">
-                  Monitoring Penerimaan Melebihi Toleransi (&gt; 5%)
+                  Monitoring Outstanding PO &amp; Toleransi (±5%)
                 </h3>
-                {outOfToleranceReceivings.length > 0 ? (
+                {poToleranceStats.over5Count > 0 ? (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 font-mono-num">
                     <span className="w-2 h-2 rounded-full bg-rose-600 animate-ping" />
-                    {outOfToleranceReceivings.length} Armada Di Luar Toleransi
+                    {poToleranceStats.over5Count} PO Melebihi +5%
+                  </span>
+                ) : poToleranceStats.under5Count > 0 ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 font-mono-num">
+                    {poToleranceStats.under5Count} PO Masih Outstanding (&gt; 5%)
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 font-mono-num">
-                    0 Armada · Semua Dalam Toleransi (±5%)
+                    Semua PO Dalam Toleransi (±5%)
                   </span>
                 )}
               </div>
               <p className="text-xs text-slate-600 mt-0.5">
-                Daftar khusus monitoring nomor RIT, Nopol armada, Supplier, dan rincian selisih Target Kuota per jadwal pengiriman terhadap Berat Netto penerimaan yang melebihi batas toleransi 5%.
+                Perbandingan akumulasi penerimaan <strong>Netto timbang aktual</strong> terhadap total <strong>QTY PO keseluruhan</strong> untuk memantau apakah sisa PO masih kurang &gt; 5%, sudah masuk rentang toleransi (±5%), atau melebihi +5%.
               </p>
             </div>
           </div>
 
-          {/* Filter Cepat saat terdapat data melebihi toleransi */}
-          {outOfToleranceReceivings.length > 0 && (
+          {/* Filter Cepat Status Toleransi & Supplier */}
+          {poOutstandingToleranceList.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex items-center bg-slate-100 border border-slate-300 rounded-lg p-0.5 text-[11px]">
+              <div className="inline-flex flex-wrap items-center bg-slate-100 border border-slate-300 rounded-lg p-0.5 text-[11px]">
                 <button
                   type="button"
                   onClick={() => setToleranceTypeFilter('ALL')}
                   className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
                     toleranceTypeFilter === 'ALL'
-                      ? 'bg-rose-600 text-white shadow-2xs'
+                      ? 'bg-slate-900 text-white shadow-2xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Semua ({outOfToleranceReceivings.length})
+                  Semua ({poOutstandingToleranceList.length})
                 </button>
                 <button
                   type="button"
-                  onClick={() => setToleranceTypeFilter('EXCESS_SHRINKAGE')}
+                  onClick={() => setToleranceTypeFilter('UNDER_5')}
                   className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
-                    toleranceTypeFilter === 'EXCESS_SHRINKAGE'
-                      ? 'bg-rose-600 text-white shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Susut &gt;5% ({outOfToleranceStats.shrinkageCount})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setToleranceTypeFilter('SURPLUS')}
-                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
-                    toleranceTypeFilter === 'SURPLUS'
+                    toleranceTypeFilter === 'UNDER_5'
                       ? 'bg-amber-500 text-slate-950 shadow-2xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Surplus &gt;5% ({outOfToleranceStats.surplusCount})
+                  Kurang &gt;5% ({poToleranceStats.under5Count})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setToleranceTypeFilter('WITHIN_5')}
+                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
+                    toleranceTypeFilter === 'WITHIN_5'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Toleransi ±5% ({poToleranceStats.within5Count})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setToleranceTypeFilter('OVER_5')}
+                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
+                    toleranceTypeFilter === 'OVER_5'
+                      ? 'bg-rose-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Lebih &gt;+5% ({poToleranceStats.over5Count})
                 </button>
               </div>
 
               {toleranceSupplierOptions.length > 1 && (
                 <div className="relative flex items-center">
-                  <Building2 className="w-3.5 h-3.5 text-rose-600 absolute left-2.5 pointer-events-none" />
+                  <Building2 className="w-3.5 h-3.5 text-amber-700 absolute left-2.5 pointer-events-none" />
                   <select
-                    aria-label="Filter Supplier Melebihi Toleransi"
+                    aria-label="Filter Supplier Outstanding PO"
                     value={toleranceSupplierFilter}
                     onChange={(e) => setToleranceSupplierFilter(e.target.value)}
-                    className="bg-white border border-slate-300 hover:border-rose-400 focus:border-rose-500 rounded-lg pl-8 pr-6 py-1.5 text-[11px] font-semibold text-slate-800 focus:outline-none cursor-pointer max-w-[220px]"
+                    className="bg-white border border-slate-300 hover:border-amber-400 focus:border-amber-500 rounded-lg pl-8 pr-6 py-1.5 text-[11px] font-semibold text-slate-800 focus:outline-none cursor-pointer max-w-[220px]"
                   >
                     <option value="">Semua Supplier ({toleranceSupplierOptions.length})</option>
                     {toleranceSupplierOptions.map((sup) => (
@@ -1017,222 +1071,491 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           )}
         </div>
 
-        {/* Ringkasan Cepat saat ada penerimaan > 5% */}
-        {outOfToleranceReceivings.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
-            <div className="px-3.5 py-2.5 rounded-lg bg-rose-50 border border-rose-200 flex items-center justify-between">
-              <span className="text-rose-900 font-medium">Kurang / Susut (&lt; -5%):</span>
-              <strong className="font-mono-num font-black text-rose-700">
-                {outOfToleranceStats.shrinkageCount} Rit
-              </strong>
-            </div>
-            <div className="px-3.5 py-2.5 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-between">
-              <span className="text-amber-950 font-medium">Surplus / Lebih (&gt; +5%):</span>
-              <strong className="font-mono-num font-black text-amber-800">
-                {outOfToleranceStats.surplusCount} Rit
-              </strong>
-            </div>
-            <div className="px-3.5 py-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between">
-              <span className="text-slate-700 font-medium">Total Kelebihan Selisih (&gt; 5%):</span>
-              <strong className="font-mono-num font-black text-rose-700">
-                {outOfToleranceStats.totalExcessKg.toLocaleString('id-ID', {
-                  maximumFractionDigits: 0,
+        {/* 4 Kartu Ringkasan Outstanding PO vs Netto Aktual */}
+        {poOutstandingToleranceList.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+            <div className="px-3.5 py-2.5 rounded-lg bg-slate-50 border border-slate-200">
+              <div className="text-[10px] font-bold uppercase text-slate-500">Total QTY PO Keseluruhan</div>
+              <div className="font-mono-num font-black text-slate-900 text-sm mt-0.5">
+                {poToleranceStats.totalTargetKg.toLocaleString('id-ID')} Kg
+              </div>
+              <div className="text-[10px] font-mono-num text-slate-500">
+                {(poToleranceStats.totalTargetKg / 1000).toLocaleString('id-ID', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
                 })}{' '}
-                Kg ({(outOfToleranceStats.totalExcessKg / 1000).toFixed(2)} T)
-              </strong>
+                Ton · {poOutstandingToleranceList.length} PO Terdaftar
+              </div>
+            </div>
+
+            <div className="px-3.5 py-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
+              <div className="text-[10px] font-bold uppercase text-emerald-800">Total Netto Timbang Aktual</div>
+              <div className="font-mono-num font-black text-emerald-800 text-sm mt-0.5">
+                {poToleranceStats.totalActualNettoKg.toLocaleString('id-ID')} Kg
+              </div>
+              <div className="text-[10px] font-mono-num text-emerald-700">
+                {(poToleranceStats.totalActualNettoKg / 1000).toLocaleString('id-ID', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                Ton · Realisasi {poToleranceStats.overallPct.toFixed(2)}%
+              </div>
+            </div>
+
+            <div className="px-3.5 py-2.5 rounded-lg bg-amber-50 border border-amber-200">
+              <div className="text-[10px] font-bold uppercase text-amber-900">Sisa Outstanding PO</div>
+              <div className="font-mono-num font-black text-amber-900 text-sm mt-0.5">
+                {poToleranceStats.totalOutstandingKg.toLocaleString('id-ID')} Kg
+              </div>
+              <div className="text-[10px] font-mono-num text-amber-800">
+                {(poToleranceStats.totalOutstandingKg / 1000).toLocaleString('id-ID', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                Ton · {poToleranceStats.under5Count} PO masih kurang &gt; 5%
+              </div>
+            </div>
+
+            <div className="px-3.5 py-2.5 rounded-lg bg-rose-50/70 border border-rose-200">
+              <div className="text-[10px] font-bold uppercase text-rose-900">Status Toleransi PO (±5%)</div>
+              <div className="flex items-center gap-3 mt-1 font-mono-num">
+                <span className="text-emerald-700 font-black text-xs">
+                  {poToleranceStats.within5Count} PO Aman (±5%)
+                </span>
+                <span className="text-slate-300">|</span>
+                <span className="text-rose-700 font-black text-xs">
+                  {poToleranceStats.over5Count} PO Lebih (&gt; +5%)
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-600 mt-0.5">
+                Rentang tutup PO ideal: 95% – 105% QTY PO
+              </div>
             </div>
           </div>
         )}
 
-        {/* Tabel Kolom Khusus Penerimaan Melebihi Toleransi (> 5%) */}
+        {/* Tabel Monitoring Outstanding PO & Toleransi (+/- 5%) */}
         <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-100 text-slate-700 border-b-2 border-slate-300 font-bold uppercase text-[10.5px] tracking-wide">
               <tr>
-                <th className="py-2.5 px-3 whitespace-nowrap">Tgl Kedatangan</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">Rit Ke-</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">Nopol &amp; No. Tiket</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">Driver &amp; Angkutan</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">PO, Supplier &amp; SJ</th>
-                <th className="py-2.5 px-3 text-right whitespace-nowrap">Target Kuota vs Netto</th>
-                <th className="py-2.5 px-3 text-right whitespace-nowrap">Selisih &amp; Toleransi (%)</th>
-                <th className="py-2.5 px-3 text-right whitespace-nowrap">Kelebihan (&gt; 5%)</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">No. PO &amp; Supplier</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">QTY PO Keseluruhan</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Netto Timbang Aktual</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Sisa / Selisih PO</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Realisasi &amp; Selisih (%)</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">Status Toleransi (±5%)</th>
                 <th className="py-2.5 px-3 text-right whitespace-nowrap">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filteredOutOfToleranceReceivings.length === 0 ? (
+              {filteredPoToleranceList.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-7 px-4 text-center bg-emerald-50/40">
-                    <div className="inline-flex items-center gap-2 text-emerald-800 font-bold text-xs">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <td colSpan={7} className="py-7 px-4 text-center bg-slate-50/70">
+                    <div className="inline-flex items-center gap-2 text-slate-700 font-bold text-xs">
+                      <FileText className="w-4 h-4 text-amber-600 shrink-0" />
                       <span>
-                        {outOfToleranceReceivings.length === 0
-                          ? 'Aman — Tidak ada data penerimaan batubara yang melebihi batas toleransi 5%.'
-                          : 'Tidak ada data yang cocok dengan filter jenis/supplier di atas.'}
+                        {poOutstandingToleranceList.length === 0
+                          ? 'Belum ada data Purchase Order (PO) yang terdaftar untuk dipantau.'
+                          : 'Tidak ada data PO yang cocok dengan filter status/supplier di atas.'}
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-600 mt-1">
-                      {outOfToleranceReceivings.length === 0
-                        ? 'Apabila ada transaksi dengan selisih Target Kuota vs Berat Netto penerimaan di atas 5%, data nomor RIT, Nopol, Driver, PO/Supplier, serta nilai kelebihannya akan otomatis tampil di kolom khusus ini.'
-                        : 'Ubah pilihan filter untuk melihat seluruh armada di luar toleransi 5%.'}
-                    </p>
                   </td>
                 </tr>
               ) : (
-                paginatedOutOfToleranceReceivings.map((item) => {
-                  const { tx, targetQuotaKg, nettoKg, diffKg, tolerancePct, effectiveLimitPct, alertType, excessPct, excessKg, ritInfo } = item;
-                  const isShrinkage = alertType === 'EXCESS_SHRINKAGE';
-                  const formattedDate = tx.gateInTime
-                    ? new Date(tx.gateInTime).toLocaleDateString('id-ID', {
+                paginatedPoToleranceList.map((item) => {
+                  const {
+                    po,
+                    targetQtyKg,
+                    tolPct,
+                    minAllowedKg,
+                    maxAllowedKg,
+                    actualNettoKg,
+                    remainingKg,
+                    varianceKg,
+                    realizationPct,
+                    variancePct,
+                    toleranceBand,
+                    needToMinTolKg,
+                    excessOverMaxTolKg,
+                    excessOverMaxTolPct,
+                    receivedRitCount,
+                    scheduledRitCount,
+                    lastDeliveryIso,
+                    receipts,
+                  } = item;
+
+                  const isExpanded = expandedPoToleranceId === po.id;
+                  const progressWidth = Math.min(100, Math.max(0, realizationPct));
+                  const rowBgClass =
+                    toleranceBand === 'OVER_5'
+                      ? 'bg-rose-50/40 hover:bg-rose-50/75'
+                      : toleranceBand === 'WITHIN_5'
+                        ? 'bg-emerald-50/30 hover:bg-emerald-50/65'
+                        : 'bg-white hover:bg-amber-50/35';
+
+                  const lastDeliveryLabel = lastDeliveryIso
+                    ? new Date(lastDeliveryIso).toLocaleDateString('id-ID', {
                         day: '2-digit',
                         month: '2-digit',
                         year: 'numeric',
                       })
                     : '-';
-                  const formattedTime = tx.gateInTime
-                    ? `${new Date(tx.gateInTime).toLocaleTimeString('id-ID', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })} WIB`
-                    : '-';
 
                   return (
-                    <tr
-                      key={tx.id}
-                      className={
-                        isShrinkage
-                          ? 'bg-rose-50/35 hover:bg-rose-50/70 transition-colors'
-                          : 'bg-amber-50/35 hover:bg-amber-50/70 transition-colors'
-                      }
-                    >
-                      {/* 0. TGL KEDATANGAN */}
-                      <td className="py-2.5 px-3 align-middle whitespace-nowrap font-mono-num">
-                        <div className="text-xs font-bold text-slate-900 flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                          <span>{formattedDate}</span>
-                        </div>
-                        <div className="text-[10px] font-semibold text-amber-700 mt-0.5 pl-4">
-                          {formattedTime}
-                        </div>
-                      </td>
-
-                      {/* 1. RIT KE- */}
-                      <td className="py-2.5 px-3 align-middle">
-                        <span className="inline-block px-2.5 py-1 rounded-lg bg-rose-100 text-rose-900 border border-rose-300 font-mono-num font-black text-xs whitespace-nowrap">
-                          {ritInfo.ritCategory}
-                        </span>
-                        {ritInfo.ritRemarks && (
+                    <React.Fragment key={po.id}>
+                      <tr className={`${rowBgClass} transition-colors`}>
+                        {/* 1. NO. PO & SUPPLIER */}
+                        <td className="py-3 px-3 align-middle">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-mono text-xs font-black text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
+                              {po.poNumber}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold border ${
+                                po.status === 'ACTIVE'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : po.status === 'HOLD'
+                                    ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                    : 'bg-slate-100 text-slate-600 border-slate-300'
+                              }`}
+                            >
+                              {po.status}
+                            </span>
+                          </div>
                           <div
-                            className="text-[10px] text-slate-600 mt-0.5 max-w-[160px] truncate"
-                            title={ritInfo.ritRemarks}
+                            className="text-xs font-bold text-slate-900 mt-1 max-w-[230px] truncate"
+                            title={po.supplierName}
                           >
-                            {ritInfo.ritRemarks}
+                            {po.supplierName}
                           </div>
-                        )}
-                      </td>
-
-                      {/* 2. NOPOL & TIKET */}
-                      <td className="py-2.5 px-3 align-middle whitespace-nowrap">
-                        <span className="inline-block font-mono text-xs font-black text-slate-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300 tracking-wider">
-                          {tx.vehiclePlate}
-                        </span>
-                        <div className="text-[10px] font-mono-num text-slate-600 mt-0.5">
-                          {formatDisplayTicketNumber(tx.ticketNumber)}
-                        </div>
-                      </td>
-
-                      {/* 3. DRIVER & ANGKUTAN */}
-                      <td className="py-2.5 px-3 align-middle whitespace-nowrap">
-                        <div className="text-xs font-bold text-slate-900">
-                          {tx.driverName || '-'}
-                        </div>
-                        {tx.transporterName && (
-                          <div className="text-[10px] text-slate-600 mt-0.5">
-                            {tx.transporterName}
+                          <div className="text-[10px] text-slate-500 font-mono-num mt-0.5">
+                            {receivedRitCount} Rit timbang aktual
+                            {scheduledRitCount > 0 ? ` · ${scheduledRitCount} Jadwal` : ''}
+                            {lastDeliveryIso ? ` · Terakhir ${lastDeliveryLabel}` : ''}
                           </div>
-                        )}
-                      </td>
+                        </td>
 
-                      {/* 4. PO, SUPPLIER & SJ */}
-                      <td className="py-2.5 px-3 align-middle">
-                        <div className="font-mono text-[11px] font-bold text-amber-800 whitespace-nowrap">
-                          {tx.poNumber}
-                          <span className="text-slate-500 font-normal ml-1.5">
-                            SJ: {tx.suratJalanNumber || '-'}
+                        {/* 2. QTY PO KESELURUHAN */}
+                        <td className="py-3 px-3 align-middle text-right font-mono-num whitespace-nowrap">
+                          <div className="text-xs font-black text-slate-900">
+                            {targetQtyKg.toLocaleString('id-ID')} Kg
+                          </div>
+                          <div className="text-[10.5px] font-semibold text-slate-600">
+                            {(targetQtyKg / 1000).toLocaleString('id-ID', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}{' '}
+                            Ton
+                          </div>
+                          <div
+                            className="text-[9.5px] text-slate-500 mt-0.5"
+                            title={`Rentang toleransi ±${tolPct}%: ${Math.round(minAllowedKg).toLocaleString('id-ID')} Kg s/d ${Math.round(maxAllowedKg).toLocaleString('id-ID')} Kg`}
+                          >
+                            ±{tolPct}%: {(minAllowedKg / 1000).toFixed(1)}–{(maxAllowedKg / 1000).toFixed(1)} T
+                          </div>
+                        </td>
+
+                        {/* 3. NETTO TIMBANG AKTUAL + PROGRESS BAR */}
+                        <td className="py-3 px-3 align-middle text-right font-mono-num whitespace-nowrap min-w-[165px]">
+                          <div className="text-xs font-black text-emerald-800">
+                            {actualNettoKg.toLocaleString('id-ID')} Kg
+                          </div>
+                          <div className="text-[10.5px] font-semibold text-emerald-700">
+                            {(actualNettoKg / 1000).toLocaleString('id-ID', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}{' '}
+                            Ton
+                          </div>
+                          <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden mt-1.5 relative">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                toleranceBand === 'OVER_5'
+                                  ? 'bg-rose-500'
+                                  : toleranceBand === 'WITHIN_5'
+                                    ? 'bg-emerald-500'
+                                    : 'bg-amber-500'
+                              }`}
+                              style={{ width: `${progressWidth}%` }}
+                            />
+                            {/* Penanda garis batas toleransi bawah 95% */}
+                            <div
+                              className="absolute top-0 bottom-0 w-0.5 bg-slate-700/60"
+                              style={{ left: `${Math.max(0, Math.min(100, 100 - tolPct))}%` }}
+                              title={`Batas bawah toleransi -${tolPct}% (${100 - tolPct}%)`}
+                            />
+                          </div>
+                        </td>
+
+                        {/* 4. SISA / SELISIH PO */}
+                        <td className="py-3 px-3 align-middle text-right font-mono-num whitespace-nowrap">
+                          {remainingKg > 0 ? (
+                            <>
+                              <div className="text-xs font-black text-amber-900">
+                                Sisa {remainingKg.toLocaleString('id-ID')} Kg
+                              </div>
+                              <div className="text-[10.5px] font-semibold text-amber-700">
+                                ({(remainingKg / 1000).toLocaleString('id-ID', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}{' '}
+                                Ton kurang)
+                              </div>
+                            </>
+                          ) : remainingKg < 0 ? (
+                            <>
+                              <div
+                                className={`text-xs font-black ${
+                                  toleranceBand === 'OVER_5' ? 'text-rose-700' : 'text-emerald-700'
+                                }`}
+                              >
+                                Lebih +{Math.abs(remainingKg).toLocaleString('id-ID')} Kg
+                              </div>
+                              <div
+                                className={`text-[10.5px] font-semibold ${
+                                  toleranceBand === 'OVER_5' ? 'text-rose-600' : 'text-emerald-600'
+                                }`}
+                              >
+                                (+{(Math.abs(remainingKg) / 1000).toLocaleString('id-ID', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}{' '}
+                                Ton di atas PO)
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-xs font-black text-emerald-700">0 Kg (Pas 100%)</div>
+                          )}
+                        </td>
+
+                        {/* 5. REALISASI & SELISIH (%) */}
+                        <td className="py-3 px-3 align-middle text-right font-mono-num whitespace-nowrap">
+                          <div className="text-xs font-black text-slate-900">
+                            {realizationPct.toFixed(2)}%
+                          </div>
+                          <span
+                            className={`inline-block mt-0.5 px-2 py-0.5 rounded font-bold text-[10.5px] border ${
+                              toleranceBand === 'OVER_5'
+                                ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                : toleranceBand === 'WITHIN_5'
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                  : 'bg-amber-100 text-amber-900 border-amber-300'
+                            }`}
+                          >
+                            {variancePct > 0 ? '+' : ''}
+                            {variancePct.toFixed(2)}% vs PO
                           </span>
-                        </div>
-                        <div
-                          className="text-[11px] font-semibold text-slate-800 max-w-[220px] truncate"
-                          title={tx.supplierName}
-                        >
-                          {tx.supplierName}
-                        </div>
-                      </td>
+                        </td>
 
-                      {/* 5. TARGET KUOTA vs NETTO */}
-                      <td className="py-2.5 px-3 align-middle text-right font-mono-num whitespace-nowrap">
-                        <div className="text-[11px] text-slate-600">
-                          Target Kuota: <strong className="text-amber-800">{targetQuotaKg.toLocaleString('id-ID')} Kg</strong>
-                        </div>
-                        <div className="text-[11px] text-emerald-800">
-                          Netto: <strong>{nettoKg.toLocaleString('id-ID')} Kg</strong>
-                        </div>
-                      </td>
+                        {/* 6. STATUS TOLERANSI (+/- 5%) */}
+                        <td className="py-3 px-3 align-middle whitespace-nowrap">
+                          {toleranceBand === 'OVER_5' ? (
+                            <div>
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-black bg-rose-100 text-rose-800 border border-rose-300">
+                                <AlertTriangle className="w-3 h-3 shrink-0" />
+                                Melebihi Toleransi (&gt; +{tolPct}%)
+                              </span>
+                              <div className="text-[10px] font-mono-num font-bold text-rose-700 mt-1">
+                                Over +{Math.round(excessOverMaxTolKg).toLocaleString('id-ID')} Kg (+
+                                {excessOverMaxTolPct.toFixed(2)}% di atas {100 + tolPct}%)
+                              </div>
+                            </div>
+                          ) : toleranceBand === 'WITHIN_5' ? (
+                            <div>
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                Dalam Toleransi (±{tolPct}%)
+                              </span>
+                              <div className="text-[10px] font-mono-num font-semibold text-emerald-700 mt-1">
+                                {varianceKg < 0
+                                  ? `Kurang ${Math.abs(variancePct).toFixed(2)}% (masih ≤ ${tolPct}%) · Siap Close`
+                                  : varianceKg > 0
+                                    ? `Lebih +${variancePct.toFixed(2)}% (masih ≤ ${tolPct}%) · Siap Close`
+                                    : 'Tepat 100% QTY PO'}
+                              </div>
+                            </div>
+                          ) : (
+                            <div>
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                                <Clock className="w-3 h-3 shrink-0" />
+                                Sisa Kurang &gt; {tolPct}% (Outstanding)
+                              </span>
+                              <div className="text-[10px] font-mono-num font-semibold text-slate-600 mt-1">
+                                Min. +{Math.round(needToMinTolKg).toLocaleString('id-ID')} Kg lagi utk masuk batas -{tolPct}% ({100 - tolPct}%)
+                              </div>
+                            </div>
+                          )}
+                        </td>
 
-                      {/* 6. SELISIH & TOLERANSI (%) */}
-                      <td className="py-2.5 px-3 align-middle text-right font-mono-num whitespace-nowrap">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded font-black text-xs border ${
-                            isShrinkage
-                              ? 'bg-rose-100 text-rose-800 border-rose-300'
-                              : 'bg-amber-100 text-amber-900 border-amber-300'
-                          }`}
-                        >
-                          {tolerancePct > 0 ? '+' : ''}
-                          {tolerancePct.toFixed(2)}%
-                        </span>
-                        <div className="text-[10px] font-bold text-slate-700 mt-0.5">
-                          {diffKg > 0 ? '+' : ''}
-                          {diffKg.toLocaleString('id-ID')} Kg ({isShrinkage ? 'Kurang' : 'Surplus'})
-                        </div>
-                      </td>
-
-                      {/* 7. KELEBIHAN (> 5%) */}
-                      <td className="py-2.5 px-3 align-middle text-right font-mono-num whitespace-nowrap">
-                        <div className="text-xs font-black text-rose-700">
-                          +{excessPct.toFixed(2)}% di atas {effectiveLimitPct}%
-                        </div>
-                        <div className="text-[10px] font-semibold text-rose-800">
-                          {excessKg.toLocaleString('id-ID', { maximumFractionDigits: 0 })} Kg (
-                          {(excessKg / 1000).toFixed(2)} T)
-                        </div>
-                      </td>
-
-                      {/* 8. AKSI */}
-                      <td className="py-2.5 px-3 align-middle text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedTimelineTx(tx)}
-                            className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg border border-slate-300 transition-colors cursor-pointer"
-                            title="Lihat Timeline Durasi Lengkap"
-                          >
-                            <History className="w-3.5 h-3.5 text-amber-700" />
-                          </button>
-                          {onOpenTicket && (
+                        {/* 7. AKSI */}
+                        <td className="py-3 px-3 align-middle text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
-                              onClick={() => onOpenTicket(tx)}
-                              className="p-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg transition-colors font-bold cursor-pointer"
-                              title="Cetak Dokumen Berita Acara In Out"
+                              onClick={() =>
+                                setExpandedPoToleranceId((prev) => (prev === po.id ? null : po.id))
+                              }
+                              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer ${
+                                isExpanded
+                                  ? 'bg-slate-900 text-white border-slate-900'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+                              }`}
+                              title="Lihat rincian penerimaan aktual per Rit untuk PO ini"
                             >
-                              <Printer className="w-3.5 h-3.5" />
+                              <span>Detail ({receivedRitCount})</span>
+                              {isExpanded ? (
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              ) : (
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              )}
                             </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
+                            <button
+                              type="button"
+                              onClick={() => onNavigate('po')}
+                              className="p-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg transition-colors font-bold cursor-pointer"
+                              title="Buka Halaman Purchase Order (PO)"
+                            >
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* Rincian Penerimaan Aktual per Rit (Expandable Inline Drawer) */}
+                      {isExpanded && (
+                        <tr className="bg-slate-50/90">
+                          <td colSpan={7} className="px-4 py-3 border-t border-slate-200">
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                              <div className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+                                <History className="w-3.5 h-3.5 text-amber-600" />
+                                <span>
+                                  Rincian Penerimaan Netto Aktual — PO{' '}
+                                  <span className="font-mono text-amber-800">{po.poNumber}</span> (
+                                  {po.supplierName})
+                                </span>
+                              </div>
+                              <div className="text-[10.5px] font-mono-num text-slate-600">
+                                Batas Toleransi ±{tolPct}%:{' '}
+                                <strong className="text-slate-900">
+                                  {Math.round(minAllowedKg).toLocaleString('id-ID')} Kg
+                                </strong>{' '}
+                                s/d{' '}
+                                <strong className="text-slate-900">
+                                  {Math.round(maxAllowedKg).toLocaleString('id-ID')} Kg
+                                </strong>
+                              </div>
+                            </div>
+
+                            {receipts.length === 0 ? (
+                              <div className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg p-3 text-center">
+                                Belum ada armada yang selesai Timbang Keluar (Netto Aktual) untuk PO ini.
+                              </div>
+                            ) : (
+                              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                                <table className="w-full text-left text-[11px] border-collapse">
+                                  <thead className="bg-slate-100 text-slate-600 border-b border-slate-200 font-bold uppercase text-[10px]">
+                                    <tr>
+                                      <th className="py-2 px-2.5 whitespace-nowrap">Tgl Kedatangan</th>
+                                      <th className="py-2 px-2.5 whitespace-nowrap">Rit Ke-</th>
+                                      <th className="py-2 px-2.5 whitespace-nowrap">Nopol &amp; Tiket</th>
+                                      <th className="py-2 px-2.5 whitespace-nowrap">Driver &amp; SJ</th>
+                                      <th className="py-2 px-2.5 text-right whitespace-nowrap">Netto Aktual</th>
+                                      <th className="py-2 px-2.5 text-right whitespace-nowrap">Akumulasi Netto</th>
+                                      <th className="py-2 px-2.5 text-right whitespace-nowrap">Sisa PO Setelah Rit</th>
+                                      <th className="py-2 px-2.5 text-right whitespace-nowrap">Aksi</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {receipts.map((rec) => {
+                                      const recDate = rec.tx.gateInTime
+                                        ? new Date(rec.tx.gateInTime).toLocaleDateString('id-ID', {
+                                            day: '2-digit',
+                                            month: '2-digit',
+                                            year: 'numeric',
+                                          })
+                                        : '-';
+                                      const recTime = rec.tx.gateInTime
+                                        ? `${new Date(rec.tx.gateInTime).toLocaleTimeString('id-ID', {
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                          })} WIB`
+                                        : '-';
+                                      return (
+                                        <tr key={rec.tx.id} className="hover:bg-slate-50">
+                                          <td className="py-2 px-2.5 font-mono-num whitespace-nowrap">
+                                            <span className="font-bold text-slate-800">{recDate}</span>{' '}
+                                            <span className="text-[10px] text-amber-700">{recTime}</span>
+                                          </td>
+                                          <td className="py-2 px-2.5 whitespace-nowrap">
+                                            <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200 font-mono-num font-bold text-[10px]">
+                                              {rec.ritInfo.ritCategory}
+                                            </span>
+                                          </td>
+                                          <td className="py-2 px-2.5 font-mono-num whitespace-nowrap">
+                                            <span className="font-bold text-slate-900">{rec.tx.vehiclePlate}</span>
+                                            <span className="text-[10px] text-slate-500 ml-1.5">
+                                              {formatDisplayTicketNumber(rec.tx.ticketNumber)}
+                                            </span>
+                                          </td>
+                                          <td className="py-2 px-2.5 whitespace-nowrap">
+                                            <span className="font-semibold text-slate-800">{rec.tx.driverName}</span>
+                                            <span className="text-[10px] text-slate-500 ml-1.5 font-mono">
+                                              SJ: {rec.tx.suratJalanNumber || '-'}
+                                            </span>
+                                          </td>
+                                          <td className="py-2 px-2.5 text-right font-mono-num font-bold text-emerald-700 whitespace-nowrap">
+                                            {rec.nettoKg.toLocaleString('id-ID')} Kg
+                                          </td>
+                                          <td className="py-2 px-2.5 text-right font-mono-num font-semibold text-slate-800 whitespace-nowrap">
+                                            {rec.cumulativeNettoKg.toLocaleString('id-ID')} Kg
+                                          </td>
+                                          <td className="py-2 px-2.5 text-right font-mono-num whitespace-nowrap">
+                                            {rec.remainingAfterKg >= 0 ? (
+                                              <span className="font-bold text-amber-800">
+                                                Sisa {rec.remainingAfterKg.toLocaleString('id-ID')} Kg (
+                                                {rec.remainingAfterPct.toFixed(1)}%)
+                                              </span>
+                                            ) : (
+                                              <span className="font-bold text-rose-700">
+                                                Lebih +{Math.abs(rec.remainingAfterKg).toLocaleString('id-ID')} Kg (+
+                                                {Math.abs(rec.remainingAfterPct).toFixed(1)}%)
+                                              </span>
+                                            )}
+                                          </td>
+                                          <td className="py-2 px-2.5 text-right whitespace-nowrap">
+                                            <div className="inline-flex items-center gap-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => setSelectedTimelineTx(rec.tx)}
+                                                className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded border border-slate-300 cursor-pointer"
+                                                title="Lihat Timeline Durasi"
+                                              >
+                                                <History className="w-3 h-3 text-amber-700" />
+                                              </button>
+                                              {onOpenTicket && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => onOpenTicket(rec.tx)}
+                                                  className="p-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded cursor-pointer"
+                                                  title="Cetak Berita Acara In Out"
+                                                >
+                                                  <Printer className="w-3 h-3" />
+                                                </button>
+                                              )}
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })
               )}
@@ -1240,8 +1563,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </table>
         </div>
 
-        {/* Pagination Kontrol (Maksimal 10 Data per Halaman) */}
-        {filteredOutOfToleranceReceivings.length > 0 && (
+        {/* Pagination Kontrol (Maksimal 10 Data PO per Halaman) */}
+        {filteredPoToleranceList.length > 0 && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 text-xs">
             <div className="text-slate-600 font-mono-num">
               Menampilkan{' '}
@@ -1250,10 +1573,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               </span>{' '}
               dari{' '}
               <span className="font-bold text-slate-900">
-                {filteredOutOfToleranceReceivings.length}
+                {filteredPoToleranceList.length}
               </span>{' '}
-              armada · Halaman{' '}
-              <span className="font-bold text-rose-700">{safeTolerancePage}</span> /{' '}
+              PO · Halaman{' '}
+              <span className="font-bold text-amber-700">{safeTolerancePage}</span> /{' '}
               <span className="font-bold text-slate-900">{toleranceTotalPages}</span>{' '}
               <span className="text-[11px] text-slate-500">
                 (Maks. {TOLERANCE_PAGE_SIZE} data/halaman)
@@ -1301,7 +1624,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                         onClick={() => setTolerancePage(entry)}
                         className={`min-w-[30px] px-2 py-1.5 rounded-lg border font-mono-num font-bold transition-colors cursor-pointer ${
                           entry === safeTolerancePage
-                            ? 'bg-rose-600 text-white border-rose-600 shadow-2xs'
+                            ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
                             : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                         }`}
                       >
