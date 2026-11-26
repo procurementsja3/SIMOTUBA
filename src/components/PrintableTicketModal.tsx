@@ -38,29 +38,6 @@ export const PrintableTicketModal: React.FC<PrintableTicketModalProps> = ({
     transaction.supplierName?.trim() ||
     '-';
 
-  const hasQcData = Boolean(transaction.qcTime || transaction.labResults?.calorieGAR);
-
-  // Visual QC helpers
-  const visualMoistureDisplay = hasQcData ? (transaction.visualAssessment?.moistureVisual || '-') : '-';
-  const visualTempDisplay = hasQcData && transaction.visualAssessment?.temperatureCelsius !== undefined
-    ? `${transaction.visualAssessment.temperatureCelsius}°C`
-    : '-';
-  const visualColorLusterDisplay = hasQcData && (transaction.visualAssessment?.coalColor || transaction.visualAssessment?.luster)
-    ? `${transaction.visualAssessment?.coalColor || 'Hitam'} (${transaction.visualAssessment?.luster || '-'})`
-    : '-';
-  const visualContaminantsDisplay = !hasQcData
-    ? '-'
-    : (transaction.visualAssessment?.contaminantsFound && transaction.visualAssessment.contaminantsFound.length > 0)
-      ? transaction.visualAssessment.contaminantsFound.join(', ')
-      : 'Bebas Pengotor (Nihil)';
-
-  // Lab & Moisture QC helpers
-  const calorieValue = transaction.labResults?.calorieGAR ? `${Math.round(transaction.labResults.calorieGAR)} kcal/kg` : '-';
-  const moistureValue = transaction.labResults?.totalMoisture !== undefined ? `${Number(transaction.labResults.totalMoisture).toFixed(1)}%` : '-';
-  const ashValue = transaction.labResults?.ashContent !== undefined ? `${Number(transaction.labResults.ashContent).toFixed(1)}%` : '-';
-  const sulfurValue = transaction.labResults?.totalSulfur !== undefined ? `${Number(transaction.labResults.totalSulfur).toFixed(2)}%` : '-';
-  const qcStatusValue = hasQcData ? (transaction.qcStatus || 'UPDATED') : 'MENUNGGU LAB (≥24 JAM)';
-
   return (
     <div 
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto"
@@ -260,118 +237,7 @@ export const PrintableTicketModal: React.FC<PrintableTicketModalProps> = ({
             </div>
           </div>
 
-          {/* Section B: Data Hasil Pemeriksaan Kualitas Batubara (QC - PA) */}
-          <div className="mb-4">
-            <div className="flex flex-wrap items-center justify-between gap-1 mb-2">
-              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-tight">
-                B. DATA HASIL PEMERIKSAAN KUALITAS BATUBARA (QC - PA · PASCA PROSES)
-              </h3>
-              <div className="text-[10px] font-mono font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-300">
-                Sampling ID: <strong className="text-slate-900">{transaction.sampleId || 'Menunggu PIC QC'}</strong>{transaction.samplingMethod ? ` (${transaction.samplingMethod})` : ''}
-              </div>
-            </div>
-
-            <div className="space-y-2.5">
-              {/* 1. DATA ANALISA FISIK & VISUAL QC */}
-              <div className="border border-slate-300 rounded overflow-hidden">
-                <div className="bg-slate-100 px-3 py-1 border-b border-slate-300 flex items-center justify-between text-xs font-semibold">
-                  <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wide">
-                    1. Data Analisa Fisik & Visual QC (Petikan Analisa Visual)
-                  </span>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                    hasQcData
-                      ? 'text-emerald-800 bg-emerald-100 border-emerald-300'
-                      : 'text-amber-900 bg-amber-100 border-amber-300'
-                  }`}>
-                    {hasQcData ? 'STATUS: LULUS VISUAL' : 'STATUS: MENUNGGU UPDATE PIC QC'}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 bg-slate-50 text-xs text-center font-mono">
-                  <div className="border-r border-slate-200 last:border-r-0 pr-1">
-                    <span className="text-[10px] text-slate-500 block uppercase font-sans">Kondisi Kelembaban</span>
-                    <strong className="text-slate-900 font-bold text-xs uppercase block">
-                      {visualMoistureDisplay}
-                    </strong>
-                  </div>
-                  <div className="border-r border-slate-200 last:border-r-0 pr-1">
-                    <span className="text-[10px] text-slate-500 block uppercase font-sans">Suhu Batubara</span>
-                    <strong className="text-slate-900 font-bold text-xs block">
-                      {visualTempDisplay}
-                    </strong>
-                  </div>
-                  <div className="border-r border-slate-200 last:border-r-0 pr-1">
-                    <span className="text-[10px] text-slate-500 block uppercase font-sans">Warna & Kilap Fisik</span>
-                    <strong className="text-slate-900 font-bold text-xs block">
-                      {visualColorLusterDisplay}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-500 block uppercase font-sans">Pengotor / Kontaminan</span>
-                    <strong className="text-slate-900 font-bold text-xs truncate block" title={visualContaminantsDisplay}>
-                      {visualContaminantsDisplay}
-                    </strong>
-                  </div>
-                </div>
-              </div>
-
-              {/* 2. DATA ANALISA MOISTURE & PARAMETER LABORATORIUM */}
-              <div className="border border-slate-300 rounded overflow-hidden">
-                <div className="bg-slate-100 px-3 py-1 border-b border-slate-300 flex items-center justify-between text-xs font-semibold">
-                  <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wide">
-                    2. Data Analisa Moisture & Parameter Lab (Update Lab ≥24 Jam)
-                  </span>
-                  <span className="text-[10px] font-semibold text-slate-600 font-sans">
-                    Metode: {transaction.samplingMethod || 'Uji Lab Independen'}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 p-2.5 bg-slate-50 text-xs text-center font-mono">
-                  <div className="border-r border-slate-200 last:border-r-0">
-                    <span className="text-[10px] text-slate-500 block font-sans">Kalori GAR</span>
-                    <strong className="text-slate-900 font-bold text-sm block">
-                      {calorieValue}
-                    </strong>
-                  </div>
-                  <div className="border-r border-slate-200 last:border-r-0">
-                    <span className="text-[10px] text-amber-900 font-bold block font-sans">Total Moisture (TM)</span>
-                    <strong className="text-slate-900 font-bold text-sm block">
-                      {moistureValue}
-                    </strong>
-                  </div>
-                  <div className="border-r border-slate-200 last:border-r-0">
-                    <span className="text-[10px] text-slate-500 block font-sans">Ash Content (Abu)</span>
-                    <strong className="text-slate-900 font-bold text-sm block">
-                      {ashValue}
-                    </strong>
-                  </div>
-                  <div className="border-r border-slate-200 last:border-r-0">
-                    <span className="text-[10px] text-slate-500 block font-sans">Total Sulfur (TS)</span>
-                    <strong className="text-slate-900 font-bold text-sm block">
-                      {sulfurValue}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-500 block font-sans">Status Mutu QC</span>
-                    <strong className={`font-bold text-xs uppercase block ${
-                      !hasQcData ? 'text-amber-700' : transaction.qcStatus === 'REJECTED' ? 'text-rose-700' : 'text-emerald-700'
-                    }`}>
-                      {qcStatusValue}
-                    </strong>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-2 text-[11px] text-slate-600 flex flex-wrap items-center justify-between gap-1 border-t border-slate-200 pt-1.5 font-sans">
-              <div>
-                <span>Alokasi Stockpile: <strong>{transaction.assignedStockpile || transaction.unloadingStockpile || 'Stockpile Utama'}</strong></span>
-                <span className="mx-2">·</span>
-                <span>Keterangan QC: <strong>Independen (Diluar Hitungan Jam Proses)</strong></span>
-              </div>
-              <div>
-                <span>Analis Lab QC - PA: <strong className="text-slate-900 font-bold">{transaction.qcInspector || 'Menunggu PIC QC'}</strong></span>
-              </div>
-            </div>
-          </div>
+          {/* Section B (Data Hasil Pemeriksaan Kualitas Batubara QC - PA) disembunyikan sementara */}
 
           {/* Section: Operational Turnaround Duration */}
           <div className="mb-4 p-2.5 bg-slate-50 border border-slate-300 rounded text-xs">

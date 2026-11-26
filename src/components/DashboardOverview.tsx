@@ -6,6 +6,7 @@ import {
   Warehouse, 
   ShieldCheck, 
   TrendingUp, 
+  TrendingDown,
   AlertTriangle, 
   Clock, 
   ArrowRight, 
@@ -29,7 +30,7 @@ import {
   Building2,
   LayoutDashboard
 } from 'lucide-react';
-import { PurchaseOrder, ArrivalSchedule, CoalTransaction, ActiveTab } from '../types/coal';
+import { PurchaseOrder, ArrivalSchedule, CoalTransaction, CoalOutgoingRecord, ActiveTab } from '../types/coal';
 import { calculateDuration, getOperationalTimeline } from '../utils/timeUtils';
 import { resolveTransactionRitInfo } from '../utils/ritUtils';
 import { formatDisplayTicketNumber } from '../utils/ticketUtils';
@@ -41,6 +42,7 @@ interface DashboardOverviewProps {
   purchaseOrders: PurchaseOrder[];
   schedules: ArrivalSchedule[];
   transactions: CoalTransaction[];
+  coalOutgoing?: CoalOutgoingRecord[];
   onNavigate: (tab: ActiveTab, filterId?: string) => void;
   onOpenTicket?: (tx: CoalTransaction) => void;
   onCheckInSchedule?: (schedule: ArrivalSchedule) => void;
@@ -51,6 +53,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   purchaseOrders,
   schedules,
   transactions,
+  coalOutgoing = [],
   onNavigate,
   onOpenTicket,
   onCheckInSchedule,
@@ -128,6 +131,50 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       return acc;
     }, 0);
   }, [completedToday]);
+
+  // Sinkronisasi KPI Total Pengeluaran & Estimasi Saldo Stok dari data Operasional Pengeluaran Batubara
+  const outgoingStats = useMemo(() => {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    const getOutgoingKg = (r: CoalOutgoingRecord) => {
+      if (typeof r.quantityKg === 'number' && Number.isFinite(r.quantityKg) && r.quantityKg > 0) {
+        return r.quantityKg;
+      }
+      if (typeof r.quantityTons === 'number' && Number.isFinite(r.quantityTons) && r.quantityTons > 0) {
+        return Math.round(r.quantityTons * 1000);
+      }
+      return 0;
+    };
+
+    const todayRecords = coalOutgoing.filter((r) => r.date === todayStr);
+    const scopedRecords = kpiScope === 'TODAY' ? todayRecords : coalOutgoing;
+
+    const scopedKg = scopedRecords.reduce((acc, r) => acc + getOutgoingKg(r), 0);
+    const totalAllOutgoingKg = coalOutgoing.reduce((acc, r) => acc + getOutgoingKg(r), 0);
+
+    const totalAllIncomingKg = allCompleted.reduce((acc, curr) => {
+      if (typeof curr.nettoWeight === 'number' && curr.nettoWeight > 0) return acc + curr.nettoWeight;
+      if (typeof curr.nettoTons === 'number' && curr.nettoTons > 0) return acc + Math.round(curr.nettoTons * 1000);
+      if (curr.grossWeight && curr.tareWeight && curr.grossWeight > curr.tareWeight) {
+        return acc + (curr.grossWeight - curr.tareWeight);
+      }
+      return acc;
+    }, 0);
+
+    const estimatedStockBalanceKg = totalAllIncomingKg - totalAllOutgoingKg;
+
+    return {
+      scopedCount: scopedRecords.length,
+      scopedKg,
+      scopedTons: scopedKg / 1000,
+      totalAllCount: coalOutgoing.length,
+      totalAllOutgoingKg,
+      totalAllOutgoingTons: totalAllOutgoingKg / 1000,
+      estimatedStockBalanceKg,
+      estimatedStockBalanceTons: estimatedStockBalanceKg / 1000,
+    };
+  }, [coalOutgoing, kpiScope, allCompleted]);
 
   const totalSuratJalanKg = completedToday.reduce((acc, curr) => acc + (curr.suratJalanWeight || 0), 0);
   const totalWeightDiffKg = completedToday.reduce((acc, curr) => {
@@ -730,14 +777,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       </div>
 
       {/* Top Welcome & KPI Metric Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-sm">
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
             <span>{kpiScope === 'TODAY' ? 'Tonase Netto Hari Ini' : 'Total Tonase Netto'}</span>
             <Scale className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl lg:text-3xl font-bold text-white font-mono-num">
+            <span className="text-2xl 2xl:text-3xl font-bold text-white font-mono-num">
               {totalTonsToday.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
             <span className="text-xs font-semibold text-slate-400">Ton</span>
@@ -753,7 +800,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <TrendingUp className="w-4 h-4 text-amber-500" />
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl lg:text-3xl font-bold text-amber-900 font-mono-num">
+            <span className="text-2xl 2xl:text-3xl font-bold text-amber-900 font-mono-num">
               {totalKgRealized.toLocaleString('id-ID')}
             </span>
             <span className="text-xs font-semibold text-slate-500">Kg</span>
@@ -767,13 +814,57 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
         </div>
 
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => onNavigate('coal-outgoing')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onNavigate('coal-outgoing');
+            }
+          }}
+          title="Klik untuk melihat rincian Operasional Pengeluaran Batubara"
+          className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-sm hover:border-amber-400 transition-colors cursor-pointer"
+        >
+          <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
+            <span>{kpiScope === 'TODAY' ? 'Pengeluaran Hari Ini' : 'Total Pengeluaran'}</span>
+            <TrendingDown className="w-4 h-4 text-rose-400" />
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl 2xl:text-3xl font-bold text-rose-400 font-mono-num">
+              {outgoingStats.scopedTons.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span className="text-xs font-semibold text-slate-400">Ton</span>
+          </div>
+          <div className="mt-2 text-[11px] text-slate-400 space-y-0.5">
+            <div className="font-mono-num">
+              {outgoingStats.scopedKg.toLocaleString('id-ID')} Kg · <strong className="text-slate-800 font-bold">{outgoingStats.scopedCount}</strong> catatan
+            </div>
+            <div>
+              Saldo Stok:{' '}
+              <span
+                className={`font-semibold font-mono-num ${
+                  outgoingStats.estimatedStockBalanceKg < 0 ? 'text-rose-400' : 'text-sky-400'
+                }`}
+              >
+                {outgoingStats.estimatedStockBalanceTons.toLocaleString('id-ID', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                Ton
+              </span>
+            </div>
+          </div>
+        </div>
+
         <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-sm">
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
             <span>Rata-Rata Deviasi Susut SJ</span>
             <TrendingUp className={`w-4 h-4 ${avgShrinkagePct < -activeContractTolerancePct ? 'text-rose-400' : 'text-emerald-400'}`} />
           </div>
           <div className="flex items-baseline gap-2">
-            <span className={`text-2xl lg:text-3xl font-bold font-mono-num ${avgShrinkagePct < -activeContractTolerancePct ? 'text-rose-400' : 'text-emerald-400'}`}>
+            <span className={`text-2xl 2xl:text-3xl font-bold font-mono-num ${avgShrinkagePct < -activeContractTolerancePct ? 'text-rose-400' : 'text-emerald-400'}`}>
               {avgShrinkagePct > 0 ? '+' : ''}{avgShrinkagePct.toFixed(2)}%
             </span>
             <span className="text-xs font-semibold text-slate-400 font-mono-num">
@@ -803,7 +894,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <Truck className="w-4 h-4 text-sky-400" />
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl lg:text-3xl font-bold text-sky-400 font-mono-num">
+            <span className="text-2xl 2xl:text-3xl font-bold text-sky-400 font-mono-num">
               {activeTrucksInside.length}
             </span>
             <span className="text-xs font-semibold text-slate-400">Truk Sedang Proses</span>

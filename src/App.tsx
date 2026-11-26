@@ -2494,6 +2494,7 @@ export default function App() {
               purchaseOrders={purchaseOrders}
               schedules={schedules}
               transactions={transactions}
+              coalOutgoing={coalOutgoing}
               onNavigate={handleNavigateWithFilter}
               onOpenTicket={(tx) => setPrintingTx(tx)}
               onCheckInSchedule={handleScheduleCheckInDirect}
