@@ -41,6 +41,8 @@ interface TransactionsTableProps {
   onNavigateToStage: (tab: ActiveTab, txId: string) => void;
   onUpdateTransaction?: (updatedTx: CoalTransaction) => void;
   canEditTransactions?: boolean;
+  initialEditTxId?: string;
+  onClearInitialEditTxId?: () => void;
 }
 
 const extractLocalDate = (iso?: string) => {
@@ -89,6 +91,8 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
   onNavigateToStage,
   onUpdateTransaction,
   canEditTransactions = true,
+  initialEditTxId,
+  onClearInitialEditTxId,
 }) => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [supplierFilter, setSupplierFilter] = useState<string>('');
@@ -175,6 +179,19 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({
       gateOutOfficer: tx.gateOutOfficer || '',
     });
   };
+
+  useEffect(() => {
+    if (!initialEditTxId) return;
+    const target = transactions.find((t) => t.id === initialEditTxId);
+    if (target) {
+      if (canEditTransactions && onUpdateTransaction) {
+        handleOpenEdit(target);
+      } else {
+        setColPlateDriver(target.vehiclePlate || '');
+      }
+      onClearInitialEditTxId?.();
+    }
+  }, [initialEditTxId, transactions, canEditTransactions, onUpdateTransaction]);
 
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();

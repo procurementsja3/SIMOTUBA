@@ -98,12 +98,28 @@ export const UnloadingStockpile: React.FC<UnloadingStockpileProps> = ({
     const refTimeIso = currentTx?.weighInTime || currentTx?.gateInTime;
     const refDateObj = refTimeIso ? new Date(refTimeIso) : null;
     const now = new Date();
-    setUnloadingDate(
-      refDateObj && !Number.isNaN(refDateObj.getTime())
-        ? getLocalDateStr(refDateObj)
-        : getLocalDateStr(now)
-    );
-    setUnloadingTime(getLocalTimeStr(now));
+    if (refDateObj && !Number.isNaN(refDateObj.getTime())) {
+      const refDateStr = getLocalDateStr(refDateObj);
+      const todayStr = getLocalDateStr(now);
+      if (refDateStr === todayStr) {
+        // Same day: use current time as long as it is >= previous stage time
+        const safeTime = now.getTime() >= refDateObj.getTime() ? now : refDateObj;
+        setUnloadingDate(getLocalDateStr(safeTime));
+        setUnloadingTime(getLocalTimeStr(safeTime));
+      } else if (now.getTime() > refDateObj.getTime() && now.getTime() - refDateObj.getTime() < 24 * 3600 * 1000) {
+        // Overnight real-time (<24h): use today's actual current date & time
+        setUnloadingDate(todayStr);
+        setUnloadingTime(getLocalTimeStr(now));
+      } else {
+        // Backdated historical entry: keep refDate and default to +30 min after weigh-in so it's chronological
+        const suggested = new Date(refDateObj.getTime() + 30 * 60 * 1000);
+        setUnloadingDate(getLocalDateStr(suggested));
+        setUnloadingTime(getLocalTimeStr(suggested));
+      }
+    } else {
+      setUnloadingDate(getLocalDateStr(now));
+      setUnloadingTime(getLocalTimeStr(now));
+    }
   }, [activeTxId]);
 
   const handleSubmit = (e: React.FormEvent) => {

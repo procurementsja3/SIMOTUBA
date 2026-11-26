@@ -28,7 +28,8 @@ import {
   Trash2,
   X,
   Building2,
-  LayoutDashboard
+  LayoutDashboard,
+  Pencil
 } from 'lucide-react';
 import { PurchaseOrder, ArrivalSchedule, CoalTransaction, CoalOutgoingRecord, ActiveTab } from '../types/coal';
 import { calculateDuration, getOperationalTimeline } from '../utils/timeUtils';
@@ -83,6 +84,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const [toleranceSupplierFilter, setToleranceSupplierFilter] = useState<string>('');
   const [tolerancePage, setTolerancePage] = useState<number>(1);
   const [expandedPoToleranceId, setExpandedPoToleranceId] = useState<string | null>(null);
+  const [isAnomalyListExpanded, setIsAnomalyListExpanded] = useState<boolean>(true);
   const TOLERANCE_PAGE_SIZE = 10;
 
   const [kpiScope, setKpiScope] = useState<'TODAY' | 'ALL'>('ALL');
@@ -494,44 +496,136 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
   // Compute sub-process averages across completed transactions (QC-PA excluded from process duration)
   const subProcessAverages = useMemo(() => {
+    const stageShortLabels = ['Gate In', 'Timbang In', 'Bongkar', 'Timbang Out', 'Gate Out'];
+    const formatCompactDateTime = (iso?: string) => {
+      if (!iso) return '-';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return iso;
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      return `${dd}/${mm} ${hh}:${min}`;
+    };
+
+    type AnomalousItem = {
+      tx: CoalTransaction;
+      ritCategory: string;
+      stageTimes: { label: string; display: string; isInverted: boolean }[];
+      issues: string[];
+    };
+
     if (completedToday.length === 0) {
       return {
-        avgGateInToWeighIn: 0,
-        avgWeighInToUnloading: 0,
-        avgUnloadingToWeighOut: 0,
-        avgWeighOutToGateOut: 0,
-        avgTotalCycleMinutes: 0,
+        avgGateInToWeighIn: null as number | null,
+        avgWeighInToUnloading: null as number | null,
+        avgUnloadingToWeighOut: null as number | null,
+        avgWeighOutToGateOut: null as number | null,
+        avgTotalCycleMinutes: null as number | null,
+        minTotalMinutes: null as number | null,
+        maxTotalMinutes: null as number | null,
         avgTotalCycleHours: 0,
         count: 0,
+        count1: 0,
+        count2: 0,
+        count3: 0,
+        count4: 0,
+        anomalousCount: 0,
+        anomalousTransactions: [] as AnomalousItem[],
       };
     }
 
-    let sum1 = 0;
-    let sum2 = 0;
-    let sum3 = 0;
-    let sum4 = 0;
-    let sumTotal = 0;
+    let sumSec1 = 0;
+    let sumSec2 = 0;
+    let sumSec3 = 0;
+    let sumSec4 = 0;
+    let sumTotalSec = 0;
+    let count1 = 0;
+    let count2 = 0;
+    let count3 = 0;
+    let count4 = 0;
+    let countTotal = 0;
+    let minTotalSec = Infinity;
+    let maxTotalSec = 0;
+    const anomalousTransactions: AnomalousItem[] = [];
 
     completedToday.forEach((tx) => {
       const { checkpoints, totalDuration } = getOperationalTimeline(tx);
-      sum1 += checkpoints[1]?.durationMinutesFromPrevious || 0;
-      sum2 += checkpoints[2]?.durationMinutesFromPrevious || 0;
-      sum3 += checkpoints[3]?.durationMinutesFromPrevious || 0;
-      sum4 += checkpoints[4]?.durationMinutesFromPrevious || 0;
-      sumTotal += totalDuration.totalMinutes || 0;
+      const cp1 = checkpoints[1];
+      const cp2 = checkpoints[2];
+      const cp3 = checkpoints[3];
+      const cp4 = checkpoints[4];
+
+      const issues: string[] = [];
+      checkpoints.forEach((cp, idx) => {
+        if (idx > 0 && cp.isInverted) {
+          const prevCp = checkpoints[idx - 1];
+          issues.push(
+            `${stageShortLabels[idx]} (${formatCompactDateTime(cp.timestamp)}) < ${stageShortLabels[idx - 1]} (${formatCompactDateTime(prevCp?.timestamp)})`
+          );
+        }
+      });
+
+      if (issues.length > 0) {
+        const ritInfo = resolveTransactionRitInfo(tx, transactions, schedules);
+        anomalousTransactions.push({
+          tx,
+          ritCategory: ritInfo.ritCategory,
+          stageTimes: checkpoints.map((cp, idx) => ({
+            label: stageShortLabels[idx],
+            display: formatCompactDateTime(cp.timestamp),
+            isInverted: Boolean(cp.isInverted),
+          })),
+          issues,
+        });
+      }
+
+      if (cp1?.status === 'COMPLETED' && cp1.hasDirectPrevious && !cp1.isInverted) {
+        sumSec1 += cp1.durationSecondsFromPrevious ?? (cp1.durationMinutesFromPrevious || 0) * 60;
+        count1 += 1;
+      }
+      if (cp2?.status === 'COMPLETED' && cp2.hasDirectPrevious && !cp2.isInverted) {
+        sumSec2 += cp2.durationSecondsFromPrevious ?? (cp2.durationMinutesFromPrevious || 0) * 60;
+        count2 += 1;
+      }
+      if (cp3?.status === 'COMPLETED' && cp3.hasDirectPrevious && !cp3.isInverted) {
+        sumSec3 += cp3.durationSecondsFromPrevious ?? (cp3.durationMinutesFromPrevious || 0) * 60;
+        count3 += 1;
+      }
+      if (cp4?.status === 'COMPLETED' && cp4.hasDirectPrevious && !cp4.isInverted) {
+        sumSec4 += cp4.durationSecondsFromPrevious ?? (cp4.durationMinutesFromPrevious || 0) * 60;
+        count4 += 1;
+      }
+
+      if (tx.gateInTime && tx.gateOutTime) {
+        const totSec = totalDuration.totalSeconds || 0;
+        sumTotalSec += totSec;
+        countTotal += 1;
+        if (totSec < minTotalSec) minTotalSec = totSec;
+        if (totSec > maxTotalSec) maxTotalSec = totSec;
+      }
     });
 
-    const n = completedToday.length;
+    const avgSecTotal = countTotal > 0 ? sumTotalSec / countTotal : 0;
+
     return {
-      avgGateInToWeighIn: Math.round(sum1 / n),
-      avgWeighInToUnloading: Math.round(sum2 / n),
-      avgUnloadingToWeighOut: Math.round(sum3 / n),
-      avgWeighOutToGateOut: Math.round(sum4 / n),
-      avgTotalCycleMinutes: Math.round(sumTotal / n),
-      avgTotalCycleHours: Number((sumTotal / n / 60).toFixed(2)),
-      count: n,
+      avgGateInToWeighIn: count1 > 0 ? Math.round(sumSec1 / count1 / 60) : null,
+      avgWeighInToUnloading: count2 > 0 ? Math.round(sumSec2 / count2 / 60) : null,
+      avgUnloadingToWeighOut: count3 > 0 ? Math.round(sumSec3 / count3 / 60) : null,
+      avgWeighOutToGateOut: count4 > 0 ? Math.round(sumSec4 / count4 / 60) : null,
+      avgTotalCycleMinutes: countTotal > 0 ? Math.round(avgSecTotal / 60) : null,
+      minTotalMinutes: countTotal > 0 && Number.isFinite(minTotalSec) ? Math.round(minTotalSec / 60) : null,
+      maxTotalMinutes: countTotal > 0 ? Math.round(maxTotalSec / 60) : null,
+      avgTotalCycleHours: Number((avgSecTotal / 3600).toFixed(2)),
+      count: completedToday.length,
+      count1,
+      count2,
+      count3,
+      count4,
+      anomalousCount: anomalousTransactions.length,
+      anomalousTransactions,
     };
-  }, [completedToday]);
+  }, [completedToday, transactions, schedules]);
 
   // Base filter (status & search) before supplier dropdown filter
   const baseFilteredHistoryTrucks = useMemo(() => {
@@ -719,8 +813,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     return pages;
   }, [totalHistoryPages, safeHistoryPage]);
 
-  const formatMinutesBadge = (minutes: number) => {
-    if (minutes <= 0) return '-';
+  const formatMinutesBadge = (minutes: number | null | undefined) => {
+    if (minutes === null || minutes === undefined || Number.isNaN(minutes) || minutes < 0) return '-';
+    if (minutes === 0) return '0 mnt';
     const hrs = Math.floor(minutes / 60);
     const mins = minutes % 60;
     if (hrs > 0) return `${hrs}j ${mins}m`;
@@ -1966,65 +2061,204 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         </div>
 
         {/* Benchmark / Rata-Rata Durasi Tiap Sub-Proses (Tanpa QC-PA) */}
-        <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5" />
               Rata-Rata Waktu Siklus Operasional (Gate In s.d. Gate Out · Diluar QC-PA)
             </span>
-            <span className="text-[11px] text-slate-400 font-mono-num">
-              Sampel: <strong className="text-white">{subProcessAverages.count}</strong> armada selesai checkout
-            </span>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 font-mono-num">
+              {subProcessAverages.minTotalMinutes !== null && subProcessAverages.maxTotalMinutes !== null && (
+                <span className="px-2 py-0.5 rounded bg-white border border-slate-300 text-slate-700">
+                  Rentang: <strong className="text-slate-900">{formatMinutesBadge(subProcessAverages.minTotalMinutes)}</strong> – <strong className="text-amber-800">{formatMinutesBadge(subProcessAverages.maxTotalMinutes)}</strong>
+                </span>
+              )}
+              <span>
+                Sampel: <strong className="text-slate-900">{subProcessAverages.count}</strong> armada selesai checkout
+              </span>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 text-xs font-mono-num">
             {/* Total Siklus (Solid Enterprise KPI Panel) */}
             <div className="p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg shadow-xs">
-              <span className="text-[10px] text-slate-400 font-sans block uppercase font-bold">Total Waktu Siklus</span>
-              <div className="text-lg font-black text-amber-400 mt-0.5">
+              <span className="text-[10px] text-slate-600 font-sans block uppercase font-bold">Total Waktu Siklus</span>
+              <div className="text-lg font-black text-amber-800 mt-0.5">
                 {formatMinutesBadge(subProcessAverages.avgTotalCycleMinutes)}
               </div>
-              <span className="text-[10px] text-slate-400 font-sans">
-                {subProcessAverages.avgTotalCycleMinutes > 0 ? `${subProcessAverages.avgTotalCycleMinutes} Menit` : 'Rata-rata siklus'}
+              <span className="text-[10px] text-slate-600 font-sans">
+                {subProcessAverages.avgTotalCycleMinutes !== null
+                  ? `Rata-rata ${subProcessAverages.avgTotalCycleMinutes} Menit`
+                  : 'Rata-rata siklus'}
               </span>
             </div>
 
             {/* Sub-Proses 1: Pos Security -> Timbang Masuk */}
-            <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
-              <span className="text-[10px] text-slate-400 font-sans block uppercase font-semibold">1. Antre Timbang In</span>
-              <div className="text-base font-bold text-white mt-0.5">
+            <div className="p-3 bg-white border border-slate-300 rounded-lg">
+              <span className="text-[10px] text-slate-600 font-sans block uppercase font-semibold">1. Antre Timbang In</span>
+              <div className="text-base font-bold text-slate-900 mt-0.5">
                 {formatMinutesBadge(subProcessAverages.avgGateInToWeighIn)}
               </div>
               <span className="text-[10px] text-slate-500 font-sans">Gate In ➔ Timbang In</span>
             </div>
 
             {/* Sub-Proses 2: Timbang Masuk -> Bongkar Stockpile */}
-            <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
-              <span className="text-[10px] text-slate-400 font-sans block uppercase font-semibold">2. Dumping Stockpile</span>
-              <div className="text-base font-bold text-sky-300 mt-0.5">
+            <div className="p-3 bg-white border border-slate-300 rounded-lg">
+              <span className="text-[10px] text-slate-600 font-sans block uppercase font-semibold">2. Dumping Stockpile</span>
+              <div className="text-base font-bold text-sky-800 mt-0.5">
                 {formatMinutesBadge(subProcessAverages.avgWeighInToUnloading)}
               </div>
               <span className="text-[10px] text-slate-500 font-sans">Timbang In ➔ Bongkar</span>
             </div>
 
             {/* Sub-Proses 3: Bongkar -> Timbang Keluar */}
-            <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
-              <span className="text-[10px] text-slate-400 font-sans block uppercase font-semibold">3. Timbang Keluar (Tare)</span>
-              <div className="text-base font-bold text-emerald-300 mt-0.5">
+            <div className="p-3 bg-white border border-slate-300 rounded-lg">
+              <span className="text-[10px] text-slate-600 font-sans block uppercase font-semibold">3. Timbang Keluar (Tare)</span>
+              <div className="text-base font-bold text-emerald-800 mt-0.5">
                 {formatMinutesBadge(subProcessAverages.avgUnloadingToWeighOut)}
               </div>
               <span className="text-[10px] text-slate-500 font-sans">Bongkar ➔ Timbang Out</span>
             </div>
 
             {/* Sub-Proses 4: Timbang Keluar -> Gate Out */}
-            <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
-              <span className="text-[10px] text-slate-400 font-sans block uppercase font-semibold">4. Checkout Gerbang</span>
-              <div className="text-base font-bold text-rose-300 mt-0.5">
+            <div className="p-3 bg-white border border-slate-300 rounded-lg">
+              <span className="text-[10px] text-slate-600 font-sans block uppercase font-semibold">4. Checkout Gerbang</span>
+              <div className="text-base font-bold text-rose-800 mt-0.5">
                 {formatMinutesBadge(subProcessAverages.avgWeighOutToGateOut)}
               </div>
               <span className="text-[10px] text-slate-500 font-sans">Timbang Out ➔ Gate Out</span>
             </div>
           </div>
+
+          {subProcessAverages.anomalousCount > 0 && (
+            <div className="rounded-lg bg-amber-50 border border-amber-300 overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-[11px] text-amber-950">
+                <span className="flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                  <span>
+                    Terdeteksi <strong className="font-mono-num">{subProcessAverages.anomalousCount}</strong> armada dengan urutan jam antar-tahap terbalik (misal jam Bongkar lebih awal dari Timbang In). Tahap tersebut dikecualikan dari rata-rata sub-proses agar tidak melonjak +24 jam.
+                  </span>
+                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setIsAnomalyListExpanded((prev) => !prev)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white hover:bg-amber-100 border border-amber-300 text-amber-950 font-bold transition-colors cursor-pointer"
+                  >
+                    <span>
+                      {isAnomalyListExpanded
+                        ? 'Sembunyikan Detail'
+                        : `Lihat Detail (${subProcessAverages.anomalousCount} Armada)`}
+                    </span>
+                    {isAnomalyListExpanded ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('transactions')}
+                    className="text-amber-900 hover:text-amber-950 font-bold underline cursor-pointer"
+                  >
+                    Buka Data Transaksi
+                  </button>
+                </div>
+              </div>
+
+              {isAnomalyListExpanded && (
+                <div className="border-t border-amber-200 bg-white overflow-x-auto">
+                  <table className="w-full text-left text-[11px] border-collapse">
+                    <thead className="bg-amber-50/70 text-slate-700 border-b border-amber-200 uppercase text-[10px]">
+                      <tr>
+                        <th className="py-2 px-3 whitespace-nowrap">Nopol, Tiket & RIT</th>
+                        <th className="py-2 px-3 whitespace-nowrap">Driver & Supplier</th>
+                        <th className="py-2 px-3 whitespace-nowrap">Urutan 5 Jam Tahapan</th>
+                        <th className="py-2 px-3 whitespace-nowrap">Jam Terbalik (Perlu Revisi)</th>
+                        <th className="py-2 px-3 text-right whitespace-nowrap">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {subProcessAverages.anomalousTransactions.map((item) => (
+                        <tr key={item.tx.id} className="hover:bg-amber-50/40">
+                          <td className="py-2 px-3 whitespace-nowrap align-top">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono-num font-bold text-amber-950 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded">
+                                {item.tx.vehiclePlate}
+                              </span>
+                              <span className="font-mono-num text-[10px] font-bold text-rose-800 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">
+                                {item.ritCategory}
+                              </span>
+                            </div>
+                            <div className="font-mono-num text-[10px] text-slate-500 mt-0.5">
+                              {formatDisplayTicketNumber(item.tx.ticketNumber)}
+                            </div>
+                          </td>
+                          <td className="py-2 px-3 align-top">
+                            <div className="font-semibold text-slate-900">{item.tx.driverName || '-'}</div>
+                            <div className="text-[10px] text-slate-600 truncate max-w-[190px]" title={item.tx.supplierName}>
+                              {item.tx.poNumber} · {item.tx.supplierName}
+                            </div>
+                          </td>
+                          <td className="py-2 px-3 align-top">
+                            <div className="flex flex-wrap gap-1 font-mono-num text-[10px]">
+                              {item.stageTimes.map((st, sIdx) => (
+                                <span
+                                  key={sIdx}
+                                  className={`px-1.5 py-0.5 rounded border ${
+                                    st.isInverted
+                                      ? 'bg-rose-100 border-rose-400 text-rose-900 font-bold'
+                                      : 'bg-slate-50 border-slate-200 text-slate-700'
+                                  }`}
+                                >
+                                  <span className="font-sans text-[9px] text-slate-500 mr-1">{st.label}:</span>
+                                  {st.display}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="py-2 px-3 align-top">
+                            <div className="space-y-0.5">
+                              {item.issues.map((issue, iIdx) => (
+                                <div
+                                  key={iIdx}
+                                  className="font-mono-num text-[10px] font-bold text-rose-800 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded inline-block"
+                                >
+                                  {issue}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="py-2 px-3 text-right whitespace-nowrap align-top">
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedTimelineTx(item.tx)}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 text-[10px] font-semibold transition-colors cursor-pointer"
+                                title="Lihat Timeline Lengkap"
+                              >
+                                <History className="w-3 h-3" />
+                                <span>Timeline</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onNavigate('transactions', item.tx.id)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-slate-950 text-[10px] font-bold transition-colors shadow-2xs cursor-pointer"
+                                title="Buka langsung form edit jam di Data Transaksi"
+                              >
+                                <Pencil className="w-3 h-3" />
+                                <span>Edit Jam</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Subheader Durasi Waktu Riwayat Bongkar langsung di atas daftar kartu armada */}

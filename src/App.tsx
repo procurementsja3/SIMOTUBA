@@ -2590,6 +2590,8 @@ export default function App() {
               onNavigateToStage={handleNavigateWithFilter}
               onUpdateTransaction={handleUpdateTransaction}
               canEditTransactions={isAdminUser}
+              initialEditTxId={selectedTxId}
+              onClearInitialEditTxId={() => setSelectedTxId(undefined)}
             />
           )}
 

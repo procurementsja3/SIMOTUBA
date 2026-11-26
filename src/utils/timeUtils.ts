@@ -21,6 +21,9 @@ export interface TimelineCheckpoint {
   metric?: string;
   durationFromPrevious?: string;
   durationMinutesFromPrevious?: number;
+  durationSecondsFromPrevious?: number;
+  hasDirectPrevious?: boolean;
+  isInverted?: boolean;
   status: 'COMPLETED' | 'IN_PROGRESS' | 'PENDING';
 }
 
@@ -77,27 +80,14 @@ export function extractTimeOfDay(ts?: string): {
   return null;
 }
 
-/**
- * Calculates duration between two formatted clock strings (e.g. "15.10.57" and "17.21.45").
- */
-export function calculateFromFormattedTimes(timeInStr?: string, timeOutStr?: string): DurationResult | null {
-  if (!timeInStr || !timeOutStr || timeInStr === '-' || timeOutStr === '-') return null;
-  const t1 = extractTimeOfDay(timeInStr);
-  const t2 = extractTimeOfDay(timeOutStr);
-  if (!t1 || !t2) return null;
-
-  let diffSec = t2.totalSeconds - t1.totalSeconds;
-  if (diffSec < 0) {
-    // Overnight turnaround (e.g. 23:00 to 01:00)
-    diffSec += 86400;
-  }
-
-  const hours = Math.floor(diffSec / 3600);
-  const remSec = diffSec % 3600;
+function buildDurationResult(diffSeconds: number, isOngoing: boolean): DurationResult {
+  const safeSec = Math.max(0, Math.floor(diffSeconds));
+  const totalMinutes = Math.floor(safeSec / 60);
+  const hours = Math.floor(safeSec / 3600);
+  const remSec = safeSec % 3600;
   const minutes = Math.floor(remSec / 60);
   const seconds = remSec % 60;
-  const totalMinutes = Math.floor(diffSec / 60);
-  const hoursDecimal = Number((diffSec / 3600).toFixed(2));
+  const hoursDecimal = Number((safeSec / 3600).toFixed(2));
 
   let text = '';
   if (hours > 0) {
@@ -113,16 +103,46 @@ export function calculateFromFormattedTimes(timeInStr?: string, timeOutStr?: str
     text = '0 Menit';
   }
 
+  if (isOngoing) {
+    text = `${text} (Berjalan)`;
+  }
+
   return {
     hours,
     minutes,
     seconds,
     totalMinutes,
-    totalSeconds: diffSec,
+    totalSeconds: safeSec,
     hoursDecimal,
     text,
-    isOngoing: false,
+    isOngoing,
   };
+}
+
+/**
+ * Calculates duration between two formatted clock strings (e.g. "15.10.57" and "17.21.45").
+ * Only applies midnight rollover (+24h) for genuine late-night -> early-morning transitions,
+ * never turning small negative/inverted timestamps into ~24 hours.
+ */
+export function calculateFromFormattedTimes(timeInStr?: string, timeOutStr?: string): DurationResult | null {
+  if (!timeInStr || !timeOutStr || timeInStr === '-' || timeOutStr === '-') return null;
+  const t1 = extractTimeOfDay(timeInStr);
+  const t2 = extractTimeOfDay(timeOutStr);
+  if (!t1 || !t2) return null;
+
+  let diffSec = t2.totalSeconds - t1.totalSeconds;
+  if (diffSec < 0) {
+    const overnightSec = diffSec + 86400;
+    // Only treat as overnight rollover if start is evening (>= 18:00), end is morning (<= 10:00),
+    // and total overnight span is <= 14 hours. Otherwise it is an inverted clock time -> 0.
+    if (t1.hour >= 18 && t2.hour <= 10 && overnightSec <= 14 * 3600) {
+      diffSec = overnightSec;
+    } else {
+      diffSec = 0;
+    }
+  }
+
+  return buildDurationResult(diffSec, false);
 }
 
 /**
@@ -153,6 +173,47 @@ export function getNormalizedTimestampMs(ts?: string): number | null {
   const date = new Date(ts);
   const time = date.getTime();
   return isNaN(time) ? null : time;
+}
+
+/**
+ * Computes safe elapsed seconds between two timestamp strings.
+ * Preserves true multi-hour and multi-day positive durations (no 24h truncation)
+ * and prevents inverted timestamps from wrapping around to +24 hours.
+ */
+function computeSafeElapsedSeconds(
+  startTs?: string,
+  endTs?: string
+): { seconds: number; isInverted: boolean } {
+  if (!startTs || startTs === '-' || !endTs || endTs === '-') {
+    return { seconds: 0, isInverted: false };
+  }
+
+  const startMs = getNormalizedTimestampMs(startTs);
+  const endMs = getNormalizedTimestampMs(endTs);
+
+  if (startMs !== null && endMs !== null) {
+    const rawDiffSec = Math.floor((endMs - startMs) / 1000);
+    if (rawDiffSec >= 0) {
+      return { seconds: rawDiffSec, isInverted: false };
+    }
+
+    // Negative diff: check ONLY for accidental same-date midnight rollover (e.g. 23:30 -> 00:20 on same date string)
+    const t1 = extractTimeOfDay(startTs);
+    const t2 = extractTimeOfDay(endTs);
+    if (t1 && t2 && t1.dateStr && t2.dateStr && t1.dateStr === t2.dateStr) {
+      const overnightSec = 86400 - t1.totalSeconds + t2.totalSeconds;
+      if (t1.hour >= 20 && t2.hour <= 6 && overnightSec <= 10 * 3600) {
+        return { seconds: overnightSec, isInverted: false };
+      }
+    }
+
+    // Genuine out-of-order / inverted timestamp: clamp to 0 instead of adding +24 hours
+    return { seconds: 0, isInverted: true };
+  }
+
+  // Fallback for pure clock-only strings without date
+  const fromClock = calculateFromFormattedTimes(startTs, endTs);
+  return { seconds: fromClock ? fromClock.totalSeconds : 0, isInverted: false };
 }
 
 /**
@@ -194,64 +255,16 @@ export function calculateDuration(startTime?: string, endTime?: string): Duratio
   const isOngoing = !endTime;
   let diffSeconds = 0;
 
-  // Method 1: Normalized epoch timestamp difference
-  const startMs = getNormalizedTimestampMs(startTime);
-  const endMs = endTime ? (getNormalizedTimestampMs(endTime) ?? Date.now()) : Date.now();
-
-  if (startMs !== null && endMs !== null && endMs > startMs) {
-    diffSeconds = Math.floor((endMs - startMs) / 1000);
-  }
-
-  // Method 2: If diffSeconds is <= 0 OR >= 24 hours (e.g. backdated Gate In vs system-date Gate Out)
-  // while endTime is present, compute duration from the literal clock times (supports overnight turnaround).
-  if (endTime && (diffSeconds <= 0 || diffSeconds >= 86400)) {
-    const fromClock = calculateFromFormattedTimes(startTime, endTime);
-    if (fromClock) {
-      diffSeconds = fromClock.totalSeconds;
+  if (endTime) {
+    diffSeconds = computeSafeElapsedSeconds(startTime, endTime).seconds;
+  } else {
+    const startMs = getNormalizedTimestampMs(startTime);
+    if (startMs !== null) {
+      diffSeconds = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
     }
   }
 
-  // If ongoing and still 0, check real-time elapsed
-  if (isOngoing && diffSeconds <= 0 && startMs) {
-    diffSeconds = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
-  }
-
-  diffSeconds = Math.max(0, diffSeconds);
-  const totalMinutes = Math.floor(diffSeconds / 60);
-  const hours = Math.floor(diffSeconds / 3600);
-  const remSecondsAfterHours = diffSeconds % 3600;
-  const minutes = Math.floor(remSecondsAfterHours / 60);
-  const seconds = remSecondsAfterHours % 60;
-  const hoursDecimal = Number((diffSeconds / 3600).toFixed(2));
-
-  let text = '';
-  if (hours > 0) {
-    const minText = minutes > 0 ? ` ${minutes} Menit` : '';
-    const secText = seconds > 0 ? ` ${seconds} Detik` : '';
-    text = `${hours} Jam${minText}${secText}`;
-  } else if (minutes > 0) {
-    const secText = seconds > 0 ? ` ${seconds} Detik` : '';
-    text = `${minutes} Menit${secText}`;
-  } else if (seconds > 0) {
-    text = `${seconds} Detik`;
-  } else {
-    text = '0 Menit';
-  }
-
-  if (isOngoing) {
-    text = `${text} (Berjalan)`;
-  }
-
-  return {
-    hours,
-    minutes,
-    seconds,
-    totalMinutes,
-    totalSeconds: diffSeconds,
-    hoursDecimal,
-    text,
-    isOngoing,
-  };
+  return buildDurationResult(diffSeconds, isOngoing);
 }
 
 /**
@@ -308,34 +321,35 @@ export function getOperationalTimeline(tx: CoalTransaction): {
     },
   ];
 
-  let prevTime: number | null = null;
+  let lastAvailableTimestamp: string | undefined;
   const checkpoints: TimelineCheckpoint[] = steps.map((s, index) => {
     let status: 'COMPLETED' | 'IN_PROGRESS' | 'PENDING' = 'PENDING';
     let durationText = '';
     let durationMinutes = 0;
+    let durationSeconds = 0;
+    let isInverted = false;
 
+    const directPrevTimestamp = index > 0 ? steps[index - 1]?.timestamp : undefined;
+    const hasDirectPrevious = Boolean(index > 0 && s.timestamp && directPrevTimestamp);
     const formattedTime = formatClockTime(s.timestamp);
 
     if (s.timestamp) {
       status = 'COMPLETED';
-      const currentTime = getNormalizedTimestampMs(s.timestamp) ?? new Date(s.timestamp).getTime();
-      if (prevTime !== null) {
-        let diffMs = currentTime - prevTime;
-        if (diffMs <= 0 || diffMs >= 86400 * 1000) {
-          const prevFormatted = steps[index - 1]?.timestamp ? formatClockTime(steps[index - 1].timestamp) : undefined;
-          if (prevFormatted && prevFormatted !== '-' && formattedTime !== '-') {
-            const fb = calculateFromFormattedTimes(prevFormatted, formattedTime);
-            if (fb) {
-              diffMs = fb.totalSeconds * 1000;
-            }
-          }
-        }
-        durationMinutes = Math.max(0, Math.floor(diffMs / 60000));
+      const referencePrevTs = directPrevTimestamp || lastAvailableTimestamp;
+      if (index > 0 && referencePrevTs) {
+        const elapsed = computeSafeElapsedSeconds(referencePrevTs, s.timestamp);
+        durationSeconds = elapsed.seconds;
+        isInverted = elapsed.isInverted;
+        durationMinutes = Math.floor(durationSeconds / 60);
         const hrs = Math.floor(durationMinutes / 60);
         const mins = durationMinutes % 60;
-        durationText = hrs > 0 ? `+${hrs}j ${mins}m` : `+${mins} mnt`;
+        if (isInverted) {
+          durationText = 'Jam tdk urut';
+        } else {
+          durationText = hrs > 0 ? `+${hrs}j ${mins}m` : `+${mins} mnt`;
+        }
       }
-      prevTime = currentTime;
+      lastAvailableTimestamp = s.timestamp;
     } else {
       // If previous was completed and this is first without timestamp, it is IN_PROGRESS
       const prevStep = steps[index - 1];
@@ -354,26 +368,15 @@ export function getOperationalTimeline(tx: CoalTransaction): {
       metric: s.metric,
       durationFromPrevious: durationText,
       durationMinutesFromPrevious: durationMinutes,
+      durationSecondsFromPrevious: durationSeconds,
+      hasDirectPrevious,
+      isInverted,
       status,
     };
   });
 
-  // Calculate total duration
-  let totalDuration = calculateDuration(tx.gateInTime, tx.gateOutTime);
-
-  // Critical safeguard: Check checkpoint formatted times
-  const firstCp = checkpoints[0];
-  const lastCp = checkpoints[checkpoints.length - 1];
-  const isFinished = tx.status === 'COMPLETED' || lastCp.status === 'COMPLETED';
-
-  if (isFinished && firstCp.formattedTime !== '-' && lastCp.formattedTime !== '-') {
-    if (totalDuration.totalSeconds <= 0 || totalDuration.totalMinutes === 0) {
-      const fallbackDur = calculateFromFormattedTimes(firstCp.formattedTime, lastCp.formattedTime);
-      if (fallbackDur && fallbackDur.totalSeconds > 0) {
-        totalDuration = fallbackDur;
-      }
-    }
-  }
+  // Calculate total duration accurately from Gate In to Gate Out
+  const totalDuration = calculateDuration(tx.gateInTime, tx.gateOutTime);
 
   return {
     checkpoints,
