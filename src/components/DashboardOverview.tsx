@@ -1298,7 +1298,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}{' '}
-                Ton · {poToleranceStats.under5Count} PO masih kurang &gt; 5%
+                Ton · Est.{' '}
+                <strong className="text-sky-900">
+                  {Math.ceil(poToleranceStats.totalOutstandingKg / 30000).toLocaleString('id-ID')} Rit
+                </strong>{' '}
+                (@30.000 Kg) · {poToleranceStats.under5Count} PO kurang &gt; 5%
               </div>
             </div>
 
@@ -1487,6 +1491,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                                   maximumFractionDigits: 2,
                                 })}{' '}
                                 Ton kurang)
+                              </div>
+                              <div
+                                className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-50 border border-sky-200 text-[10px] font-bold text-sky-900"
+                                title={`Estimasi sisa rit = ${remainingKg.toLocaleString('id-ID')} Kg ÷ 30.000 Kg/Rit = ${(remainingKg / 30000).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Rit`}
+                              >
+                                <span>Est. {Math.ceil(remainingKg / 30000)} Rit</span>
+                                <span className="font-normal text-sky-700">
+                                  ({(remainingKg / 30000).toLocaleString('id-ID', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}{' '}
+                                  · @30.000 Kg)
+                                </span>
                               </div>
                             </>
                           ) : remainingKg < 0 ? (
