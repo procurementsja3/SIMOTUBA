@@ -173,42 +173,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       totalAllCount: coalOutgoing.length,
       totalAllOutgoingKg,
       totalAllOutgoingTons: totalAllOutgoingKg / 1000,
+      totalAllIncomingKg,
+      totalAllIncomingTons: totalAllIncomingKg / 1000,
       estimatedStockBalanceKg,
       estimatedStockBalanceTons: estimatedStockBalanceKg / 1000,
     };
   }, [coalOutgoing, kpiScope, allCompleted]);
-
-  const totalSuratJalanKg = completedToday.reduce((acc, curr) => acc + (curr.suratJalanWeight || 0), 0);
-  const totalWeightDiffKg = completedToday.reduce((acc, curr) => {
-    const netto =
-      typeof curr.nettoWeight === 'number' && curr.nettoWeight > 0
-        ? curr.nettoWeight
-        : curr.grossWeight && curr.tareWeight && curr.grossWeight > curr.tareWeight
-          ? curr.grossWeight - curr.tareWeight
-          : (curr.nettoTons || 0) * 1000;
-    const sj = curr.suratJalanWeight || 0;
-    return acc + (sj > 0 && netto > 0 ? netto - sj : curr.weightDifference || 0);
-  }, 0);
-  const totalShrinkageTons = totalWeightDiffKg / 1000;
-  const avgShrinkagePct =
-    totalSuratJalanKg > 0
-      ? (totalWeightDiffKg / totalSuratJalanKg) * 100
-      : completedToday.length > 0
-        ? completedToday.reduce((acc, curr) => acc + (curr.shrinkagePercentage || 0), 0) / completedToday.length
-        : 0;
-  const activeContractTolerancePct =
-    purchaseOrders.find((po) => po.status === 'ACTIVE')?.tolerancePercentage ??
-    purchaseOrders[0]?.tolerancePercentage ??
-    5;
-  const toleranceAllowanceTons = (totalSuratJalanKg * (activeContractTolerancePct / 100)) / 1000;
-  const excessShrinkageTons =
-    avgShrinkagePct < -activeContractTolerancePct
-      ? Math.max(0, Math.abs(totalShrinkageTons) - toleranceAllowanceTons)
-      : 0;
-  const excessShrinkagePct =
-    avgShrinkagePct < -activeContractTolerancePct
-      ? Math.abs(avgShrinkagePct) - activeContractTolerancePct
-      : 0;
 
   const validCalorieList = completedToday
     .filter((t) => t.labResults?.calorieGAR && t.labResults.calorieGAR > 0)
@@ -937,49 +907,50 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               {outgoingStats.scopedKg.toLocaleString('id-ID')} Kg · <strong className="text-slate-800 font-bold">{outgoingStats.scopedCount}</strong> catatan
             </div>
             <div>
-              Saldo Stok:{' '}
-              <span
-                className={`font-semibold font-mono-num ${
-                  outgoingStats.estimatedStockBalanceKg < 0 ? 'text-rose-400' : 'text-sky-400'
-                }`}
-              >
-                {outgoingStats.estimatedStockBalanceTons.toLocaleString('id-ID', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}{' '}
-                Ton
-              </span>
+              {kpiScope === 'TODAY'
+                ? `Kumulatif: ${outgoingStats.totalAllOutgoingTons.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ton`
+                : 'Sinkron Operasional Pengeluaran'}
             </div>
           </div>
         </div>
 
-        <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-sm">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => onNavigate('coal-outgoing')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onNavigate('coal-outgoing');
+            }
+          }}
+          title="Klik untuk melihat rincian penerimaan & pengeluaran stok batubara"
+          className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-sm hover:border-amber-400 transition-colors cursor-pointer"
+        >
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-            <span>Rata-Rata Deviasi Susut SJ</span>
-            <TrendingUp className={`w-4 h-4 ${avgShrinkagePct < -activeContractTolerancePct ? 'text-rose-400' : 'text-emerald-400'}`} />
+            <span>Saldo Akhir</span>
+            <Warehouse className={`w-4 h-4 ${outgoingStats.estimatedStockBalanceKg < 0 ? 'text-rose-400' : 'text-emerald-400'}`} />
           </div>
           <div className="flex items-baseline gap-2">
-            <span className={`text-2xl 2xl:text-3xl font-bold font-mono-num ${avgShrinkagePct < -activeContractTolerancePct ? 'text-rose-400' : 'text-emerald-400'}`}>
-              {avgShrinkagePct > 0 ? '+' : ''}{avgShrinkagePct.toFixed(2)}%
+            <span
+              className={`text-2xl 2xl:text-3xl font-bold font-mono-num ${
+                outgoingStats.estimatedStockBalanceKg < 0 ? 'text-rose-400' : 'text-emerald-400'
+              }`}
+            >
+              {outgoingStats.estimatedStockBalanceTons.toLocaleString('id-ID', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
             </span>
-            <span className="text-xs font-semibold text-slate-400 font-mono-num">
-              ({totalShrinkageTons > 0 ? '+' : ''}{totalShrinkageTons.toFixed(2)} Ton)
-            </span>
+            <span className="text-xs font-semibold text-slate-400">Ton</span>
           </div>
           <div className="mt-2 text-[11px] text-slate-400 space-y-0.5">
-            <div>
-              Batas toleransi kontrak: <span className="text-slate-300 font-semibold">±{activeContractTolerancePct}%</span>
-              {totalSuratJalanKg > 0 && (
-                <span className="font-mono-num text-slate-500 ml-1">(±{toleranceAllowanceTons.toFixed(2)} Ton)</span>
-              )}
+            <div className="font-mono-num font-semibold text-slate-700">
+              {outgoingStats.estimatedStockBalanceKg.toLocaleString('id-ID')} Kg
             </div>
-            {completedToday.length > 0 && (
-              <div className={`font-semibold ${excessShrinkageTons > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
-                {excessShrinkageTons > 0
-                  ? `Di luar toleransi (> ${activeContractTolerancePct}%): -${excessShrinkagePct.toFixed(2)}% (-${excessShrinkageTons.toFixed(2)} Ton)`
-                  : `✓ Dalam batas toleransi (±${activeContractTolerancePct}%)`}
-              </div>
-            )}
+            <div className="font-mono-num text-[10.5px] text-slate-500">
+              Masuk {outgoingStats.totalAllIncomingTons.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} T − Keluar {outgoingStats.totalAllOutgoingTons.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} T
+            </div>
           </div>
         </div>
 
@@ -1131,55 +1102,79 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       {/* MONITORING OUTSTANDING PO & TOLERANSI (+/- 5%): NETTO AKTUAL VS QTY PO    */}
       {/* ========================================================================= */}
       <div
-        className={`bg-white rounded-xl p-5 shadow-xs space-y-4 border-2 ${
+        className={`rounded-2xl overflow-hidden shadow-sm border bg-gradient-to-b from-slate-50/90 via-white to-slate-50/70 ${
           poToleranceStats.over5Count > 0
-            ? 'border-rose-300'
+            ? 'border-rose-300/80'
             : poToleranceStats.under5Count > 0
-              ? 'border-amber-300'
-              : 'border-emerald-300'
+              ? 'border-amber-300/80'
+              : 'border-emerald-300/80'
         }`}
       >
-        {/* Header Judul Khusus */}
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+        {/* Garis Aksen Tipis Menyatu di Bagian Atas Panel */}
+        <div
+          className={`h-1 w-full bg-gradient-to-r ${
+            poToleranceStats.over5Count > 0
+              ? 'from-slate-700 via-rose-500 to-amber-400'
+              : poToleranceStats.under5Count > 0
+                ? 'from-slate-700 via-amber-500 to-emerald-500'
+                : 'from-slate-700 via-emerald-500 to-teal-400'
+          }`}
+        />
+
+        {/* Header Judul Khusus dengan Gradasi Halus Menyatu Background */}
+        <div
+          className={`flex flex-col xl:flex-row xl:items-center justify-between gap-3 px-5 py-4 border-b border-slate-200/80 bg-gradient-to-r ${
+            poToleranceStats.over5Count > 0
+              ? 'from-slate-100/95 via-rose-50/55 to-white'
+              : poToleranceStats.under5Count > 0
+                ? 'from-slate-100/95 via-amber-50/55 to-white'
+                : 'from-slate-100/95 via-emerald-50/55 to-white'
+          }`}
+        >
           <div className="flex items-start gap-3">
             <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 border ${
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 border shadow-2xs ${
                 poToleranceStats.over5Count > 0
-                  ? 'bg-rose-50 border-rose-300'
+                  ? 'bg-gradient-to-br from-white to-rose-100/80 border-rose-200/90'
                   : poToleranceStats.under5Count > 0
-                    ? 'bg-amber-50 border-amber-300'
-                    : 'bg-emerald-50 border-emerald-300'
+                    ? 'bg-gradient-to-br from-white to-amber-100/80 border-amber-200/90'
+                    : 'bg-gradient-to-br from-white to-emerald-100/80 border-emerald-200/90'
               }`}
             >
               {poToleranceStats.over5Count > 0 ? (
                 <AlertTriangle className="w-5 h-5 text-rose-600" />
               ) : poToleranceStats.under5Count > 0 ? (
-                <Scale className="w-5 h-5 text-amber-600" />
+                <Scale className="w-5 h-5 text-amber-700" />
               ) : (
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
               )}
             </div>
             <div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                 <h3 className="text-base font-black text-slate-900 tracking-wide uppercase">
                   Monitoring Outstanding PO &amp; Toleransi (±5%)
                 </h3>
+                <span aria-hidden="true" className="text-slate-300 hidden sm:inline">
+                  |
+                </span>
                 {poToleranceStats.over5Count > 0 ? (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 font-mono-num">
-                    <span className="w-2 h-2 rounded-full bg-rose-600 animate-ping" />
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-700 font-mono-num">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                     {poToleranceStats.over5Count} PO Melebihi +5%
                   </span>
                 ) : poToleranceStats.under5Count > 0 ? (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 font-mono-num">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 font-mono-num">
+                    <Clock className="w-3.5 h-3.5 shrink-0 text-amber-700" />
                     {poToleranceStats.under5Count} PO Masih Outstanding (&gt; 5%)
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 font-mono-num">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 font-mono-num">
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                     Semua PO Dalam Toleransi (±5%)
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-600 mt-0.5">
+              <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
                 Perbandingan akumulasi penerimaan <strong>Netto timbang aktual</strong> terhadap total <strong>QTY PO keseluruhan</strong> untuk memantau apakah sisa PO masih kurang &gt; 5%, sudah masuk rentang toleransi (±5%), atau melebihi +5%.
               </p>
             </div>
@@ -1187,15 +1182,15 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
           {/* Filter Cepat Status Toleransi & Supplier */}
           {poOutstandingToleranceList.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex flex-wrap items-center bg-slate-100 border border-slate-300 rounded-lg p-0.5 text-[11px]">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <div className="inline-flex flex-wrap items-center bg-slate-200/70 border border-slate-300/80 rounded-xl p-1 text-[11px] gap-0.5">
                 <button
                   type="button"
                   onClick={() => setToleranceTypeFilter('ALL')}
-                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer whitespace-nowrap ${
                     toleranceTypeFilter === 'ALL'
-                      ? 'bg-slate-900 text-white shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-white text-slate-900 shadow-xs ring-1 ring-slate-300/90'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                   }`}
                 >
                   Semua ({poOutstandingToleranceList.length})
@@ -1203,10 +1198,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 <button
                   type="button"
                   onClick={() => setToleranceTypeFilter('UNDER_5')}
-                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer whitespace-nowrap ${
                     toleranceTypeFilter === 'UNDER_5'
-                      ? 'bg-amber-500 text-slate-950 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-amber-500 text-slate-950 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                   }`}
                 >
                   Kurang &gt;5% ({poToleranceStats.under5Count})
@@ -1214,10 +1209,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 <button
                   type="button"
                   onClick={() => setToleranceTypeFilter('WITHIN_5')}
-                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer whitespace-nowrap ${
                     toleranceTypeFilter === 'WITHIN_5'
-                      ? 'bg-emerald-600 text-white shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                   }`}
                 >
                   Toleransi ±5% ({poToleranceStats.within5Count})
@@ -1225,10 +1220,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 <button
                   type="button"
                   onClick={() => setToleranceTypeFilter('OVER_5')}
-                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer whitespace-nowrap ${
                     toleranceTypeFilter === 'OVER_5'
-                      ? 'bg-rose-600 text-white shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                   }`}
                 >
                   Lebih &gt;+5% ({poToleranceStats.over5Count})
@@ -1242,7 +1237,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     aria-label="Filter Supplier Outstanding PO"
                     value={toleranceSupplierFilter}
                     onChange={(e) => setToleranceSupplierFilter(e.target.value)}
-                    className="bg-white border border-slate-300 hover:border-amber-400 focus:border-amber-500 rounded-lg pl-8 pr-6 py-1.5 text-[11px] font-semibold text-slate-800 focus:outline-none cursor-pointer max-w-[220px]"
+                    className="bg-white border border-slate-300 hover:border-amber-400 focus:border-amber-500 rounded-xl pl-8 pr-6 py-1.5 text-[11px] font-semibold text-slate-800 focus:outline-none cursor-pointer max-w-[220px]"
                   >
                     <option value="">Semua Supplier ({toleranceSupplierOptions.length})</option>
                     {toleranceSupplierOptions.map((sup) => (
@@ -1257,518 +1252,600 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           )}
         </div>
 
-        {/* 4 Kartu Ringkasan Outstanding PO vs Netto Aktual */}
-        {poOutstandingToleranceList.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
-            <div className="px-3.5 py-2.5 rounded-lg bg-slate-50 border border-slate-200">
-              <div className="text-[10px] font-bold uppercase text-slate-500">Total QTY PO Keseluruhan</div>
-              <div className="font-mono-num font-black text-slate-900 text-sm mt-0.5">
-                {poToleranceStats.totalTargetKg.toLocaleString('id-ID')} Kg
+        {/* Body Panel: Ringkasan KPI & Tabel Data */}
+        <div className="p-5 space-y-4">
+          {/* 4 Kartu Ringkasan Outstanding PO vs Netto Aktual — Warna Lembut Menyatu & Angka Menonjol */}
+          {poOutstandingToleranceList.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              {/* KPI 1: Total QTY PO */}
+              <div className="px-4 py-3 rounded-xl bg-gradient-to-br from-white via-slate-50/80 to-slate-100/90 border border-slate-200/90 shadow-2xs flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10.5px] font-bold uppercase tracking-wide text-slate-600">
+                    Total QTY PO Keseluruhan
+                  </span>
+                  <FileText className="w-4 h-4 text-slate-500 shrink-0" />
+                </div>
+                <div className="font-mono-num font-black text-slate-900 text-lg sm:text-xl tracking-tight mt-1.5">
+                  {poToleranceStats.totalTargetKg.toLocaleString('id-ID')}{' '}
+                  <span className="text-xs font-bold text-slate-500">Kg</span>
+                </div>
+                <div className="text-[11px] font-mono-num text-slate-600 mt-1 pt-1.5 border-t border-slate-200/70">
+                  <span className="font-semibold text-slate-800">
+                    {(poToleranceStats.totalTargetKg / 1000).toLocaleString('id-ID', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}{' '}
+                    Ton
+                  </span>{' '}
+                  · {poOutstandingToleranceList.length} PO Terdaftar
+                </div>
               </div>
-              <div className="text-[10px] font-mono-num text-slate-500">
-                {(poToleranceStats.totalTargetKg / 1000).toLocaleString('id-ID', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}{' '}
-                Ton · {poOutstandingToleranceList.length} PO Terdaftar
-              </div>
-            </div>
 
-            <div className="px-3.5 py-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
-              <div className="text-[10px] font-bold uppercase text-emerald-800">Total Netto Timbang Aktual</div>
-              <div className="font-mono-num font-black text-emerald-800 text-sm mt-0.5">
-                {poToleranceStats.totalActualNettoKg.toLocaleString('id-ID')} Kg
+              {/* KPI 2: Total Netto Timbang Aktual */}
+              <div className="px-4 py-3 rounded-xl bg-gradient-to-br from-white via-emerald-50/45 to-teal-50/80 border border-emerald-200/80 shadow-2xs flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10.5px] font-bold uppercase tracking-wide text-emerald-800">
+                    Total Netto Timbang Aktual
+                  </span>
+                  <Scale className="w-4 h-4 text-emerald-600 shrink-0" />
+                </div>
+                <div className="font-mono-num font-black text-emerald-800 text-lg sm:text-xl tracking-tight mt-1.5">
+                  {poToleranceStats.totalActualNettoKg.toLocaleString('id-ID')}{' '}
+                  <span className="text-xs font-bold text-emerald-700/80">Kg</span>
+                </div>
+                <div className="mt-1.5 space-y-1">
+                  <div className="w-full h-1.5 bg-emerald-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all"
+                      style={{ width: `${Math.min(100, Math.max(0, poToleranceStats.overallPct))}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] font-mono-num text-emerald-800">
+                    <span>
+                      {(poToleranceStats.totalActualNettoKg / 1000).toLocaleString('id-ID', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}{' '}
+                      Ton
+                    </span>
+                    <span className="font-extrabold">Realisasi {poToleranceStats.overallPct.toFixed(2)}%</span>
+                  </div>
+                </div>
               </div>
-              <div className="text-[10px] font-mono-num text-emerald-700">
-                {(poToleranceStats.totalActualNettoKg / 1000).toLocaleString('id-ID', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}{' '}
-                Ton · Realisasi {poToleranceStats.overallPct.toFixed(2)}%
-              </div>
-            </div>
 
-            <div className="px-3.5 py-2.5 rounded-lg bg-amber-50 border border-amber-200">
-              <div className="text-[10px] font-bold uppercase text-amber-900">Sisa Outstanding PO</div>
-              <div className="font-mono-num font-black text-amber-900 text-sm mt-0.5">
-                {poToleranceStats.totalOutstandingKg.toLocaleString('id-ID')} Kg
+              {/* KPI 3: Sisa Outstanding PO */}
+              <div className="px-4 py-3 rounded-xl bg-gradient-to-br from-white via-amber-50/50 to-orange-50/75 border border-amber-200/85 shadow-2xs flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10.5px] font-bold uppercase tracking-wide text-amber-900">
+                    Sisa Outstanding PO
+                  </span>
+                  <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                </div>
+                <div className="font-mono-num font-black text-amber-900 text-lg sm:text-xl tracking-tight mt-1.5">
+                  {poToleranceStats.totalOutstandingKg.toLocaleString('id-ID')}{' '}
+                  <span className="text-xs font-bold text-amber-800/80">Kg</span>
+                </div>
+                <div className="text-[11px] font-mono-num text-amber-900/90 mt-1 pt-1.5 border-t border-amber-200/60 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <span>
+                    {(poToleranceStats.totalOutstandingKg / 1000).toLocaleString('id-ID', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}{' '}
+                    Ton
+                  </span>
+                  <span aria-hidden="true" className="text-amber-400">·</span>
+                  <span className="font-extrabold text-sky-900">
+                    Est. {Math.ceil(poToleranceStats.totalOutstandingKg / 30000).toLocaleString('id-ID')} Rit
+                  </span>
+                  <span className="text-[10px] text-amber-800/80">(@30.000 Kg)</span>
+                </div>
               </div>
-              <div className="text-[10px] font-mono-num text-amber-800">
-                {(poToleranceStats.totalOutstandingKg / 1000).toLocaleString('id-ID', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}{' '}
-                Ton · Est.{' '}
-                <strong className="text-sky-900">
-                  {Math.ceil(poToleranceStats.totalOutstandingKg / 30000).toLocaleString('id-ID')} Rit
-                </strong>{' '}
-                (@30.000 Kg) · {poToleranceStats.under5Count} PO kurang &gt; 5%
-              </div>
-            </div>
 
-            <div className="px-3.5 py-2.5 rounded-lg bg-rose-50/70 border border-rose-200">
-              <div className="text-[10px] font-bold uppercase text-rose-900">Status Toleransi PO (±5%)</div>
-              <div className="flex items-center gap-3 mt-1 font-mono-num">
-                <span className="text-emerald-700 font-black text-xs">
-                  {poToleranceStats.within5Count} PO Aman (±5%)
-                </span>
-                <span className="text-slate-300">|</span>
-                <span className="text-rose-700 font-black text-xs">
-                  {poToleranceStats.over5Count} PO Lebih (&gt; +5%)
-                </span>
-              </div>
-              <div className="text-[10px] text-slate-600 mt-0.5">
-                Rentang tutup PO ideal: 95% – 105% QTY PO
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tabel Monitoring Outstanding PO & Toleransi (+/- 5%) */}
-        <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-100 text-slate-700 border-b-2 border-slate-300 font-bold uppercase text-[10.5px] tracking-wide">
-              <tr>
-                <th className="py-2.5 px-3 whitespace-nowrap">No. PO &amp; Supplier</th>
-                <th className="py-2.5 px-3 text-right whitespace-nowrap">QTY PO Keseluruhan</th>
-                <th className="py-2.5 px-3 text-right whitespace-nowrap">Netto Timbang Aktual</th>
-                <th className="py-2.5 px-3 text-right whitespace-nowrap">Sisa / Selisih PO</th>
-                <th className="py-2.5 px-3 text-right whitespace-nowrap">Realisasi &amp; Selisih (%)</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">Status Toleransi (±5%)</th>
-                <th className="py-2.5 px-3 text-right whitespace-nowrap">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {filteredPoToleranceList.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-7 px-4 text-center bg-slate-50/70">
-                    <div className="inline-flex items-center gap-2 text-slate-700 font-bold text-xs">
-                      <FileText className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span>
-                        {poOutstandingToleranceList.length === 0
-                          ? 'Belum ada data Purchase Order (PO) yang terdaftar untuk dipantau.'
-                          : 'Tidak ada data PO yang cocok dengan filter status/supplier di atas.'}
-                      </span>
+              {/* KPI 4: Status Toleransi PO (±5%) */}
+              <div
+                className={`px-4 py-3 rounded-xl border shadow-2xs flex flex-col justify-between bg-gradient-to-br ${
+                  poToleranceStats.over5Count > 0
+                    ? 'from-white via-rose-50/45 to-rose-100/65 border-rose-200/85'
+                    : 'from-white via-slate-50/70 to-sky-50/65 border-slate-200/90'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    className={`text-[10.5px] font-bold uppercase tracking-wide ${
+                      poToleranceStats.over5Count > 0 ? 'text-rose-900' : 'text-slate-700'
+                    }`}
+                  >
+                    Status Toleransi PO (±5%)
+                  </span>
+                  <CheckCircle2
+                    className={`w-4 h-4 shrink-0 ${
+                      poToleranceStats.over5Count > 0 ? 'text-rose-600' : 'text-sky-600'
+                    }`}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-1.5 font-mono-num">
+                  <div className="rounded-lg bg-emerald-50/80 border border-emerald-200/70 px-2.5 py-1">
+                    <div className="text-base font-black text-emerald-800 leading-tight">
+                      {poToleranceStats.within5Count}
                     </div>
-                  </td>
+                    <div className="text-[10px] font-bold text-emerald-700">PO Aman (±5%)</div>
+                  </div>
+                  <div className="rounded-lg bg-rose-50/80 border border-rose-200/70 px-2.5 py-1">
+                    <div className="text-base font-black text-rose-800 leading-tight">
+                      {poToleranceStats.over5Count}
+                    </div>
+                    <div className="text-[10px] font-bold text-rose-700">PO Lebih (&gt;+5%)</div>
+                  </div>
+                </div>
+                <div className="text-[10.5px] text-slate-600 mt-1.5">
+                  Rentang tutup PO ideal: <strong className="text-slate-800">95% – 105%</strong> QTY PO
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tabel Monitoring Outstanding PO & Toleransi (+/- 5%) */}
+          <div className="overflow-x-auto rounded-xl border border-slate-200/90 bg-white shadow-2xs">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-100 text-slate-700 border-b-2 border-slate-200 font-bold uppercase text-[10.5px] tracking-wide">
+                <tr>
+                  <th className="py-3 px-3.5 whitespace-nowrap">No. PO &amp; Supplier</th>
+                  <th className="py-3 px-3.5 text-right whitespace-nowrap">QTY PO Keseluruhan</th>
+                  <th className="py-3 px-3.5 text-right whitespace-nowrap">Netto Timbang Aktual</th>
+                  <th className="py-3 px-3.5 text-right whitespace-nowrap">Sisa / Selisih PO</th>
+                  <th className="py-3 px-3.5 text-right whitespace-nowrap">Realisasi &amp; Selisih (%)</th>
+                  <th className="py-3 px-3.5 whitespace-nowrap">Status Toleransi (±5%)</th>
+                  <th className="py-3 px-3.5 text-right whitespace-nowrap">Aksi</th>
                 </tr>
-              ) : (
-                paginatedPoToleranceList.map((item) => {
-                  const {
-                    po,
-                    targetQtyKg,
-                    tolPct,
-                    minAllowedKg,
-                    maxAllowedKg,
-                    actualNettoKg,
-                    remainingKg,
-                    varianceKg,
-                    realizationPct,
-                    variancePct,
-                    toleranceBand,
-                    needToMinTolKg,
-                    excessOverMaxTolKg,
-                    excessOverMaxTolPct,
-                    receivedRitCount,
-                    scheduledRitCount,
-                    lastDeliveryIso,
-                    receipts,
-                  } = item;
+              </thead>
+              <tbody className="divide-y divide-slate-200/80">
+                {filteredPoToleranceList.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-7 px-4 text-center bg-slate-50/70">
+                      <div className="inline-flex items-center gap-2 text-slate-700 font-bold text-xs">
+                        <FileText className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>
+                          {poOutstandingToleranceList.length === 0
+                            ? 'Belum ada data Purchase Order (PO) yang terdaftar untuk dipantau.'
+                            : 'Tidak ada data PO yang cocok dengan filter status/supplier di atas.'}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedPoToleranceList.map((item) => {
+                    const {
+                      po,
+                      targetQtyKg,
+                      tolPct,
+                      minAllowedKg,
+                      maxAllowedKg,
+                      actualNettoKg,
+                      remainingKg,
+                      varianceKg,
+                      realizationPct,
+                      variancePct,
+                      toleranceBand,
+                      needToMinTolKg,
+                      excessOverMaxTolKg,
+                      excessOverMaxTolPct,
+                      receivedRitCount,
+                      scheduledRitCount,
+                      lastDeliveryIso,
+                      receipts,
+                    } = item;
 
-                  const isExpanded = expandedPoToleranceId === po.id;
-                  const progressWidth = Math.min(100, Math.max(0, realizationPct));
-                  const rowBgClass =
-                    toleranceBand === 'OVER_5'
-                      ? 'bg-rose-50/40 hover:bg-rose-50/75'
-                      : toleranceBand === 'WITHIN_5'
-                        ? 'bg-emerald-50/30 hover:bg-emerald-50/65'
-                        : 'bg-white hover:bg-amber-50/35';
+                    const isExpanded = expandedPoToleranceId === po.id;
+                    const progressWidth = Math.min(100, Math.max(0, realizationPct));
+                    const rowBgClass =
+                      toleranceBand === 'OVER_5'
+                        ? 'bg-gradient-to-r from-rose-50/35 via-white to-rose-50/25'
+                        : toleranceBand === 'WITHIN_5'
+                          ? 'bg-gradient-to-r from-emerald-50/30 via-white to-emerald-50/25'
+                          : 'bg-gradient-to-r from-slate-50/40 via-white to-amber-50/25';
 
-                  const lastDeliveryLabel = lastDeliveryIso
-                    ? new Date(lastDeliveryIso).toLocaleDateString('id-ID', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric',
-                      })
-                    : '-';
+                    const lastDeliveryLabel = lastDeliveryIso
+                      ? new Date(lastDeliveryIso).toLocaleDateString('id-ID', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric',
+                        })
+                      : '-';
 
-                  return (
-                    <React.Fragment key={po.id}>
-                      <tr className={`${rowBgClass} transition-colors`}>
-                        {/* 1. NO. PO & SUPPLIER */}
-                        <td className="py-3 px-3 align-middle">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-mono text-xs font-black text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
-                              {po.poNumber}
-                            </span>
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold border ${
-                                po.status === 'ACTIVE'
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : po.status === 'HOLD'
-                                    ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                    : 'bg-slate-100 text-slate-600 border-slate-300'
-                              }`}
+                    return (
+                      <React.Fragment key={po.id}>
+                        <tr className={`${rowBgClass} transition-colors`}>
+                          {/* 1. NO. PO & SUPPLIER */}
+                          <td className="py-3.5 px-3.5 align-middle">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono text-xs font-black text-amber-900 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/90">
+                                {po.poNumber}
+                              </span>
+                              <span
+                                className={`text-[10px] font-extrabold uppercase tracking-wider ${
+                                  po.status === 'ACTIVE'
+                                    ? 'text-emerald-700'
+                                    : po.status === 'HOLD'
+                                      ? 'text-amber-700'
+                                      : 'text-slate-500'
+                                }`}
+                              >
+                                {po.status}
+                              </span>
+                            </div>
+                            <div
+                              className="text-[13px] font-extrabold text-slate-900 mt-1.5 max-w-[240px] truncate"
+                              title={po.supplierName}
                             >
-                              {po.status}
-                            </span>
-                          </div>
-                          <div
-                            className="text-xs font-bold text-slate-900 mt-1 max-w-[230px] truncate"
-                            title={po.supplierName}
-                          >
-                            {po.supplierName}
-                          </div>
-                          <div className="text-[10px] text-slate-500 font-mono-num mt-0.5">
-                            {receivedRitCount} Rit timbang aktual
-                            {scheduledRitCount > 0 ? ` · ${scheduledRitCount} Jadwal` : ''}
-                            {lastDeliveryIso ? ` · Terakhir ${lastDeliveryLabel}` : ''}
-                          </div>
-                        </td>
+                              {po.supplierName}
+                            </div>
+                            <div className="text-[10.5px] text-slate-500 font-mono-num mt-0.5">
+                              {receivedRitCount} Rit aktual
+                              {scheduledRitCount > 0 ? ` · ${scheduledRitCount} Jadwal` : ''}
+                              {lastDeliveryIso ? ` · Terakhir ${lastDeliveryLabel}` : ''}
+                            </div>
+                          </td>
 
-                        {/* 2. QTY PO KESELURUHAN */}
-                        <td className="py-3 px-3 align-middle text-right font-mono-num whitespace-nowrap">
-                          <div className="text-xs font-black text-slate-900">
-                            {targetQtyKg.toLocaleString('id-ID')} Kg
-                          </div>
-                          <div className="text-[10.5px] font-semibold text-slate-600">
-                            {(targetQtyKg / 1000).toLocaleString('id-ID', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}{' '}
-                            Ton
-                          </div>
-                          <div
-                            className="text-[9.5px] text-slate-500 mt-0.5"
-                            title={`Rentang toleransi ±${tolPct}%: ${Math.round(minAllowedKg).toLocaleString('id-ID')} Kg s/d ${Math.round(maxAllowedKg).toLocaleString('id-ID')} Kg`}
-                          >
-                            ±{tolPct}%: {(minAllowedKg / 1000).toFixed(1)}–{(maxAllowedKg / 1000).toFixed(1)} T
-                          </div>
-                        </td>
-
-                        {/* 3. NETTO TIMBANG AKTUAL + PROGRESS BAR */}
-                        <td className="py-3 px-3 align-middle text-right font-mono-num whitespace-nowrap min-w-[165px]">
-                          <div className="text-xs font-black text-emerald-800">
-                            {actualNettoKg.toLocaleString('id-ID')} Kg
-                          </div>
-                          <div className="text-[10.5px] font-semibold text-emerald-700">
-                            {(actualNettoKg / 1000).toLocaleString('id-ID', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}{' '}
-                            Ton
-                          </div>
-                          <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden mt-1.5 relative">
-                            <div
-                              className={`h-full rounded-full transition-all ${
-                                toleranceBand === 'OVER_5'
-                                  ? 'bg-rose-500'
-                                  : toleranceBand === 'WITHIN_5'
-                                    ? 'bg-emerald-500'
-                                    : 'bg-amber-500'
-                              }`}
-                              style={{ width: `${progressWidth}%` }}
-                            />
-                            {/* Penanda garis batas toleransi bawah 95% */}
-                            <div
-                              className="absolute top-0 bottom-0 w-0.5 bg-slate-700/60"
-                              style={{ left: `${Math.max(0, Math.min(100, 100 - tolPct))}%` }}
-                              title={`Batas bawah toleransi -${tolPct}% (${100 - tolPct}%)`}
-                            />
-                          </div>
-                        </td>
-
-                        {/* 4. SISA / SELISIH PO */}
-                        <td className="py-3 px-3 align-middle text-right font-mono-num whitespace-nowrap">
-                          {remainingKg > 0 ? (
-                            <>
-                              <div className="text-xs font-black text-amber-900">
-                                Sisa {remainingKg.toLocaleString('id-ID')} Kg
+                          {/* 2. QTY PO KESELURUHAN */}
+                          <td className="py-3.5 px-3.5 align-middle text-right font-mono-num whitespace-nowrap">
+                            <div className="inline-block text-right rounded-lg bg-slate-50/90 border border-slate-200/80 px-3 py-2">
+                              <div className="text-[13.5px] font-black text-slate-900 leading-tight">
+                                {targetQtyKg.toLocaleString('id-ID')} Kg
                               </div>
-                              <div className="text-[10.5px] font-semibold text-amber-700">
-                                ({(remainingKg / 1000).toLocaleString('id-ID', {
+                              <div className="text-[11px] font-bold text-slate-600 mt-0.5">
+                                {(targetQtyKg / 1000).toLocaleString('id-ID', {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
                                 })}{' '}
-                                Ton kurang)
+                                Ton
                               </div>
                               <div
-                                className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-50 border border-sky-200 text-[10px] font-bold text-sky-900"
-                                title={`Estimasi sisa rit = ${remainingKg.toLocaleString('id-ID')} Kg ÷ 30.000 Kg/Rit = ${(remainingKg / 30000).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Rit`}
+                                className="text-[9.5px] text-slate-500 mt-0.5"
+                                title={`Rentang toleransi ±${tolPct}%: ${Math.round(minAllowedKg).toLocaleString('id-ID')} Kg s/d ${Math.round(maxAllowedKg).toLocaleString('id-ID')} Kg`}
                               >
-                                <span>Est. {Math.ceil(remainingKg / 30000)} Rit</span>
-                                <span className="font-normal text-sky-700">
-                                  ({(remainingKg / 30000).toLocaleString('id-ID', {
+                                ±{tolPct}%: {(minAllowedKg / 1000).toFixed(1)}–{(maxAllowedKg / 1000).toFixed(1)} T
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 3. NETTO TIMBANG AKTUAL + PROGRESS BAR */}
+                          <td className="py-3.5 px-3.5 align-middle text-right font-mono-num whitespace-nowrap min-w-[185px]">
+                            <div className="rounded-lg bg-gradient-to-br from-emerald-50/70 to-teal-50/45 border border-emerald-200/75 px-3 py-2">
+                              <div className="text-[13.5px] font-black text-emerald-800 leading-tight">
+                                {actualNettoKg.toLocaleString('id-ID')} Kg
+                              </div>
+                              <div className="text-[11px] font-bold text-emerald-700 mt-0.5">
+                                {(actualNettoKg / 1000).toLocaleString('id-ID', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}{' '}
+                                Ton
+                              </div>
+                              <div className="w-full h-2.5 bg-slate-200/90 rounded-full overflow-hidden mt-2 relative">
+                                <div
+                                  className={`h-full rounded-full transition-all bg-gradient-to-r ${
+                                    toleranceBand === 'OVER_5'
+                                      ? 'from-rose-500 to-rose-600'
+                                      : toleranceBand === 'WITHIN_5'
+                                        ? 'from-emerald-500 to-teal-500'
+                                        : 'from-amber-400 to-amber-500'
+                                  }`}
+                                  style={{ width: `${progressWidth}%` }}
+                                />
+                                {/* Penanda garis batas toleransi bawah 95% */}
+                                <div
+                                  className="absolute top-0 bottom-0 w-0.5 bg-slate-800/65"
+                                  style={{ left: `${Math.max(0, Math.min(100, 100 - tolPct))}%` }}
+                                  title={`Batas bawah toleransi -${tolPct}% (${100 - tolPct}%)`}
+                                />
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 4. SISA / SELISIH PO */}
+                          <td className="py-3.5 px-3.5 align-middle text-right font-mono-num whitespace-nowrap">
+                            {remainingKg > 0 ? (
+                              <div className="inline-block text-right rounded-lg bg-gradient-to-br from-amber-50/75 via-amber-50/40 to-sky-50/60 border border-amber-200/80 px-3 py-2">
+                                <div className="text-[13.5px] font-black text-amber-900 leading-tight">
+                                  Sisa {remainingKg.toLocaleString('id-ID')} Kg
+                                </div>
+                                <div className="text-[10.5px] font-bold text-amber-800/90 mt-0.5">
+                                  ({(remainingKg / 1000).toLocaleString('id-ID', {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
                                   })}{' '}
-                                  · @30.000 Kg)
-                                </span>
+                                  Ton kurang)
+                                </div>
+                                <div
+                                  className="mt-1.5 pt-1 border-t border-amber-200/70 text-[10.5px] font-extrabold text-sky-900"
+                                  title={`Estimasi sisa rit = ${remainingKg.toLocaleString('id-ID')} Kg ÷ 30.000 Kg/Rit = ${(remainingKg / 30000).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Rit`}
+                                >
+                                  <span>Est. {Math.ceil(remainingKg / 30000)} Rit</span>{' '}
+                                  <span className="font-semibold text-sky-700">
+                                    ({(remainingKg / 30000).toLocaleString('id-ID', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })}{' '}
+                                    · @30.000 Kg)
+                                  </span>
+                                </div>
                               </div>
-                            </>
-                          ) : remainingKg < 0 ? (
-                            <>
+                            ) : remainingKg < 0 ? (
                               <div
-                                className={`text-xs font-black ${
-                                  toleranceBand === 'OVER_5' ? 'text-rose-700' : 'text-emerald-700'
+                                className={`inline-block text-right rounded-lg border px-3 py-2 ${
+                                  toleranceBand === 'OVER_5'
+                                    ? 'bg-rose-50/80 border-rose-200/80'
+                                    : 'bg-emerald-50/80 border-emerald-200/80'
                                 }`}
                               >
-                                Lebih +{Math.abs(remainingKg).toLocaleString('id-ID')} Kg
-                              </div>
-                              <div
-                                className={`text-[10.5px] font-semibold ${
-                                  toleranceBand === 'OVER_5' ? 'text-rose-600' : 'text-emerald-600'
-                                }`}
-                              >
-                                (+{(Math.abs(remainingKg) / 1000).toLocaleString('id-ID', {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })}{' '}
-                                Ton di atas PO)
-                              </div>
-                            </>
-                          ) : (
-                            <div className="text-xs font-black text-emerald-700">0 Kg (Pas 100%)</div>
-                          )}
-                        </td>
-
-                        {/* 5. REALISASI & SELISIH (%) */}
-                        <td className="py-3 px-3 align-middle text-right font-mono-num whitespace-nowrap">
-                          <div className="text-xs font-black text-slate-900">
-                            {realizationPct.toFixed(2)}%
-                          </div>
-                          <span
-                            className={`inline-block mt-0.5 px-2 py-0.5 rounded font-bold text-[10.5px] border ${
-                              toleranceBand === 'OVER_5'
-                                ? 'bg-rose-100 text-rose-800 border-rose-300'
-                                : toleranceBand === 'WITHIN_5'
-                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                  : 'bg-amber-100 text-amber-900 border-amber-300'
-                            }`}
-                          >
-                            {variancePct > 0 ? '+' : ''}
-                            {variancePct.toFixed(2)}% vs PO
-                          </span>
-                        </td>
-
-                        {/* 6. STATUS TOLERANSI (+/- 5%) */}
-                        <td className="py-3 px-3 align-middle whitespace-nowrap">
-                          {toleranceBand === 'OVER_5' ? (
-                            <div>
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-black bg-rose-100 text-rose-800 border border-rose-300">
-                                <AlertTriangle className="w-3 h-3 shrink-0" />
-                                Melebihi Toleransi (&gt; +{tolPct}%)
-                              </span>
-                              <div className="text-[10px] font-mono-num font-bold text-rose-700 mt-1">
-                                Over +{Math.round(excessOverMaxTolKg).toLocaleString('id-ID')} Kg (+
-                                {excessOverMaxTolPct.toFixed(2)}% di atas {100 + tolPct}%)
-                              </div>
-                            </div>
-                          ) : toleranceBand === 'WITHIN_5' ? (
-                            <div>
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                <CheckCircle2 className="w-3 h-3 shrink-0" />
-                                Dalam Toleransi (±{tolPct}%)
-                              </span>
-                              <div className="text-[10px] font-mono-num font-semibold text-emerald-700 mt-1">
-                                {varianceKg < 0
-                                  ? `Kurang ${Math.abs(variancePct).toFixed(2)}% (masih ≤ ${tolPct}%) · Siap Close`
-                                  : varianceKg > 0
-                                    ? `Lebih +${variancePct.toFixed(2)}% (masih ≤ ${tolPct}%) · Siap Close`
-                                    : 'Tepat 100% QTY PO'}
-                              </div>
-                            </div>
-                          ) : (
-                            <div>
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-black bg-amber-100 text-amber-900 border border-amber-300">
-                                <Clock className="w-3 h-3 shrink-0" />
-                                Sisa Kurang &gt; {tolPct}% (Outstanding)
-                              </span>
-                              <div className="text-[10px] font-mono-num font-semibold text-slate-600 mt-1">
-                                Min. +{Math.round(needToMinTolKg).toLocaleString('id-ID')} Kg lagi utk masuk batas -{tolPct}% ({100 - tolPct}%)
-                              </div>
-                            </div>
-                          )}
-                        </td>
-
-                        {/* 7. AKSI */}
-                        <td className="py-3 px-3 align-middle text-right whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpandedPoToleranceId((prev) => (prev === po.id ? null : po.id))
-                              }
-                              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer ${
-                                isExpanded
-                                  ? 'bg-slate-900 text-white border-slate-900'
-                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
-                              }`}
-                              title="Lihat rincian penerimaan aktual per Rit untuk PO ini"
-                            >
-                              <span>Detail ({receivedRitCount})</span>
-                              {isExpanded ? (
-                                <ChevronUp className="w-3.5 h-3.5" />
-                              ) : (
-                                <ChevronDown className="w-3.5 h-3.5" />
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onNavigate('po')}
-                              className="p-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg transition-colors font-bold cursor-pointer"
-                              title="Buka Halaman Purchase Order (PO)"
-                            >
-                              <ArrowRight className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-
-                      {/* Rincian Penerimaan Aktual per Rit (Expandable Inline Drawer) */}
-                      {isExpanded && (
-                        <tr className="bg-slate-50/90">
-                          <td colSpan={7} className="px-4 py-3 border-t border-slate-200">
-                            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                              <div className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
-                                <History className="w-3.5 h-3.5 text-amber-600" />
-                                <span>
-                                  Rincian Penerimaan Netto Aktual — PO{' '}
-                                  <span className="font-mono text-amber-800">{po.poNumber}</span> (
-                                  {po.supplierName})
-                                </span>
-                              </div>
-                              <div className="text-[10.5px] font-mono-num text-slate-600">
-                                Batas Toleransi ±{tolPct}%:{' '}
-                                <strong className="text-slate-900">
-                                  {Math.round(minAllowedKg).toLocaleString('id-ID')} Kg
-                                </strong>{' '}
-                                s/d{' '}
-                                <strong className="text-slate-900">
-                                  {Math.round(maxAllowedKg).toLocaleString('id-ID')} Kg
-                                </strong>
-                              </div>
-                            </div>
-
-                            {receipts.length === 0 ? (
-                              <div className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg p-3 text-center">
-                                Belum ada armada yang selesai Timbang Keluar (Netto Aktual) untuk PO ini.
+                                <div
+                                  className={`text-[13.5px] font-black leading-tight ${
+                                    toleranceBand === 'OVER_5' ? 'text-rose-800' : 'text-emerald-800'
+                                  }`}
+                                >
+                                  Lebih +{Math.abs(remainingKg).toLocaleString('id-ID')} Kg
+                                </div>
+                                <div
+                                  className={`text-[10.5px] font-semibold mt-0.5 ${
+                                    toleranceBand === 'OVER_5' ? 'text-rose-700' : 'text-emerald-700'
+                                  }`}
+                                >
+                                  (+{(Math.abs(remainingKg) / 1000).toLocaleString('id-ID', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}{' '}
+                                  Ton di atas PO)
+                                </div>
                               </div>
                             ) : (
-                              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                                <table className="w-full text-left text-[11px] border-collapse">
-                                  <thead className="bg-slate-100 text-slate-600 border-b border-slate-200 font-bold uppercase text-[10px]">
-                                    <tr>
-                                      <th className="py-2 px-2.5 whitespace-nowrap">Tgl Kedatangan</th>
-                                      <th className="py-2 px-2.5 whitespace-nowrap">Rit Ke-</th>
-                                      <th className="py-2 px-2.5 whitespace-nowrap">Nopol &amp; Tiket</th>
-                                      <th className="py-2 px-2.5 whitespace-nowrap">Driver &amp; SJ</th>
-                                      <th className="py-2 px-2.5 text-right whitespace-nowrap">Netto Aktual</th>
-                                      <th className="py-2 px-2.5 text-right whitespace-nowrap">Akumulasi Netto</th>
-                                      <th className="py-2 px-2.5 text-right whitespace-nowrap">Sisa PO Setelah Rit</th>
-                                      <th className="py-2 px-2.5 text-right whitespace-nowrap">Aksi</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-100">
-                                    {receipts.map((rec) => {
-                                      const recDate = rec.tx.gateInTime
-                                        ? new Date(rec.tx.gateInTime).toLocaleDateString('id-ID', {
-                                            day: '2-digit',
-                                            month: '2-digit',
-                                            year: 'numeric',
-                                          })
-                                        : '-';
-                                      const recTime = rec.tx.gateInTime
-                                        ? `${new Date(rec.tx.gateInTime).toLocaleTimeString('id-ID', {
-                                            hour: '2-digit',
-                                            minute: '2-digit',
-                                          })} WIB`
-                                        : '-';
-                                      return (
-                                        <tr key={rec.tx.id} className="hover:bg-slate-50">
-                                          <td className="py-2 px-2.5 font-mono-num whitespace-nowrap">
-                                            <span className="font-bold text-slate-800">{recDate}</span>{' '}
-                                            <span className="text-[10px] text-amber-700">{recTime}</span>
-                                          </td>
-                                          <td className="py-2 px-2.5 whitespace-nowrap">
-                                            <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200 font-mono-num font-bold text-[10px]">
-                                              {rec.ritInfo.ritCategory}
-                                            </span>
-                                          </td>
-                                          <td className="py-2 px-2.5 font-mono-num whitespace-nowrap">
-                                            <span className="font-bold text-slate-900">{rec.tx.vehiclePlate}</span>
-                                            <span className="text-[10px] text-slate-500 ml-1.5">
-                                              {formatDisplayTicketNumber(rec.tx.ticketNumber)}
-                                            </span>
-                                          </td>
-                                          <td className="py-2 px-2.5 whitespace-nowrap">
-                                            <span className="font-semibold text-slate-800">{rec.tx.driverName}</span>
-                                            <span className="text-[10px] text-slate-500 ml-1.5 font-mono">
-                                              SJ: {rec.tx.suratJalanNumber || '-'}
-                                            </span>
-                                          </td>
-                                          <td className="py-2 px-2.5 text-right font-mono-num font-bold text-emerald-700 whitespace-nowrap">
-                                            {rec.nettoKg.toLocaleString('id-ID')} Kg
-                                          </td>
-                                          <td className="py-2 px-2.5 text-right font-mono-num font-semibold text-slate-800 whitespace-nowrap">
-                                            {rec.cumulativeNettoKg.toLocaleString('id-ID')} Kg
-                                          </td>
-                                          <td className="py-2 px-2.5 text-right font-mono-num whitespace-nowrap">
-                                            {rec.remainingAfterKg >= 0 ? (
-                                              <span className="font-bold text-amber-800">
-                                                Sisa {rec.remainingAfterKg.toLocaleString('id-ID')} Kg (
-                                                {rec.remainingAfterPct.toFixed(1)}%)
-                                              </span>
-                                            ) : (
-                                              <span className="font-bold text-rose-700">
-                                                Lebih +{Math.abs(rec.remainingAfterKg).toLocaleString('id-ID')} Kg (+
-                                                {Math.abs(rec.remainingAfterPct).toFixed(1)}%)
-                                              </span>
-                                            )}
-                                          </td>
-                                          <td className="py-2 px-2.5 text-right whitespace-nowrap">
-                                            <div className="inline-flex items-center gap-1">
-                                              <button
-                                                type="button"
-                                                onClick={() => setSelectedTimelineTx(rec.tx)}
-                                                className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded border border-slate-300 cursor-pointer"
-                                                title="Lihat Timeline Durasi"
-                                              >
-                                                <History className="w-3 h-3 text-amber-700" />
-                                              </button>
-                                              {onOpenTicket && (
-                                                <button
-                                                  type="button"
-                                                  onClick={() => onOpenTicket(rec.tx)}
-                                                  className="p-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded cursor-pointer"
-                                                  title="Cetak Berita Acara In Out"
-                                                >
-                                                  <Printer className="w-3 h-3" />
-                                                </button>
-                                              )}
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
+                              <div className="inline-block rounded-lg bg-emerald-50/80 border border-emerald-200/80 px-3 py-2 text-xs font-black text-emerald-800">
+                                0 Kg (Pas 100%)
                               </div>
                             )}
                           </td>
+
+                          {/* 5. REALISASI & SELISIH (%) */}
+                          <td className="py-3.5 px-3.5 align-middle text-right font-mono-num whitespace-nowrap">
+                            <div className="text-[15px] font-black text-slate-900 leading-tight">
+                              {realizationPct.toFixed(2)}%
+                            </div>
+                            <span
+                              className={`inline-block mt-1 px-2 py-0.5 rounded-md font-bold text-[10.5px] border ${
+                                toleranceBand === 'OVER_5'
+                                  ? 'bg-rose-50 text-rose-800 border-rose-200/90'
+                                  : toleranceBand === 'WITHIN_5'
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200/90'
+                                    : 'bg-amber-50 text-amber-900 border-amber-200/90'
+                              }`}
+                            >
+                              {variancePct > 0 ? '+' : ''}
+                              {variancePct.toFixed(2)}% vs PO
+                            </span>
+                          </td>
+
+                          {/* 6. STATUS TOLERANSI (+/- 5%) */}
+                          <td className="py-3.5 px-3.5 align-middle whitespace-nowrap">
+                            {toleranceBand === 'OVER_5' ? (
+                              <div className="rounded-lg bg-rose-50/75 border border-rose-200/80 px-3 py-2">
+                                <div className="inline-flex items-center gap-1.5 text-[11px] font-black text-rose-800">
+                                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
+                                  <span>Melebihi Toleransi (&gt; +{tolPct}%)</span>
+                                </div>
+                                <div className="text-[10.5px] font-mono-num font-semibold text-rose-700 mt-1">
+                                  Over +{Math.round(excessOverMaxTolKg).toLocaleString('id-ID')} Kg (+
+                                  {excessOverMaxTolPct.toFixed(2)}% di atas {100 + tolPct}%)
+                                </div>
+                              </div>
+                            ) : toleranceBand === 'WITHIN_5' ? (
+                              <div className="rounded-lg bg-emerald-50/75 border border-emerald-200/80 px-3 py-2">
+                                <div className="inline-flex items-center gap-1.5 text-[11px] font-black text-emerald-800">
+                                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                                  <span>Dalam Toleransi (±{tolPct}%)</span>
+                                </div>
+                                <div className="text-[10.5px] font-mono-num font-semibold text-emerald-700 mt-1">
+                                  {varianceKg < 0
+                                    ? `Kurang ${Math.abs(variancePct).toFixed(2)}% (masih ≤ ${tolPct}%) · Siap Close`
+                                    : varianceKg > 0
+                                      ? `Lebih +${variancePct.toFixed(2)}% (masih ≤ ${tolPct}%) · Siap Close`
+                                      : 'Tepat 100% QTY PO'}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="rounded-lg bg-amber-50/70 border border-amber-200/80 px-3 py-2">
+                                <div className="inline-flex items-center gap-1.5 text-[11px] font-black text-amber-900">
+                                  <Clock className="w-3.5 h-3.5 shrink-0 text-amber-700" />
+                                  <span>Sisa Kurang &gt; {tolPct}% (Outstanding)</span>
+                                </div>
+                                <div className="text-[10.5px] font-mono-num font-semibold text-slate-700 mt-1">
+                                  Min.{' '}
+                                  <span className="font-extrabold text-amber-900">
+                                    +{Math.round(needToMinTolKg).toLocaleString('id-ID')} Kg
+                                  </span>{' '}
+                                  lagi utk masuk batas -{tolPct}% ({100 - tolPct}%)
+                                </div>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* 7. AKSI */}
+                          <td className="py-3.5 px-3.5 align-middle text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedPoToleranceId((prev) => (prev === po.id ? null : po.id))
+                                }
+                                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer ${
+                                  isExpanded
+                                    ? 'bg-slate-700 text-white border-slate-700 shadow-2xs'
+                                    : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-300'
+                                }`}
+                                title="Lihat rincian penerimaan aktual per Rit untuk PO ini"
+                              >
+                                <span>Detail ({receivedRitCount})</span>
+                                {isExpanded ? (
+                                  <ChevronUp className="w-3.5 h-3.5" />
+                                ) : (
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onNavigate('po')}
+                                className="p-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg transition-colors font-bold cursor-pointer shadow-2xs"
+                                title="Buka Halaman Purchase Order (PO)"
+                              >
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
                         </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+
+                        {/* Rincian Penerimaan Aktual per Rit (Expandable Inline Drawer) */}
+                        {isExpanded && (
+                          <tr className="bg-slate-50/95">
+                            <td colSpan={7} className="px-4 py-3.5 border-t border-slate-200/90">
+                              <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                                <div className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+                                  <History className="w-3.5 h-3.5 text-amber-600" />
+                                  <span>
+                                    Rincian Penerimaan Netto Aktual — PO{' '}
+                                    <span className="font-mono text-amber-800">{po.poNumber}</span> (
+                                    {po.supplierName})
+                                  </span>
+                                </div>
+                                <div className="text-[10.5px] font-mono-num text-slate-600">
+                                  Batas Toleransi ±{tolPct}%:{' '}
+                                  <strong className="text-slate-900">
+                                    {Math.round(minAllowedKg).toLocaleString('id-ID')} Kg
+                                  </strong>{' '}
+                                  s/d{' '}
+                                  <strong className="text-slate-900">
+                                    {Math.round(maxAllowedKg).toLocaleString('id-ID')} Kg
+                                  </strong>
+                                </div>
+                              </div>
+
+                              {receipts.length === 0 ? (
+                                <div className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg p-3 text-center">
+                                  Belum ada armada yang selesai Timbang Keluar (Netto Aktual) untuk PO ini.
+                                </div>
+                              ) : (
+                                <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                                  <table className="w-full text-left text-[11px] border-collapse">
+                                    <thead className="bg-slate-100 text-slate-600 border-b border-slate-200 font-bold uppercase text-[10px]">
+                                      <tr>
+                                        <th className="py-2 px-2.5 whitespace-nowrap">Tgl Kedatangan</th>
+                                        <th className="py-2 px-2.5 whitespace-nowrap">Rit Ke-</th>
+                                        <th className="py-2 px-2.5 whitespace-nowrap">Nopol &amp; Tiket</th>
+                                        <th className="py-2 px-2.5 whitespace-nowrap">Driver &amp; SJ</th>
+                                        <th className="py-2 px-2.5 text-right whitespace-nowrap">Netto Aktual</th>
+                                        <th className="py-2 px-2.5 text-right whitespace-nowrap">Akumulasi Netto</th>
+                                        <th className="py-2 px-2.5 text-right whitespace-nowrap">Sisa PO Setelah Rit</th>
+                                        <th className="py-2 px-2.5 text-right whitespace-nowrap">Aksi</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                      {receipts.map((rec) => {
+                                        const recDate = rec.tx.gateInTime
+                                          ? new Date(rec.tx.gateInTime).toLocaleDateString('id-ID', {
+                                              day: '2-digit',
+                                              month: '2-digit',
+                                              year: 'numeric',
+                                            })
+                                          : '-';
+                                        const recTime = rec.tx.gateInTime
+                                          ? `${new Date(rec.tx.gateInTime).toLocaleTimeString('id-ID', {
+                                              hour: '2-digit',
+                                              minute: '2-digit',
+                                            })} WIB`
+                                          : '-';
+                                        return (
+                                          <tr key={rec.tx.id} className="hover:bg-slate-50">
+                                            <td className="py-2 px-2.5 font-mono-num whitespace-nowrap">
+                                              <span className="font-bold text-slate-800">{recDate}</span>{' '}
+                                              <span className="text-[10px] text-amber-700">{recTime}</span>
+                                            </td>
+                                            <td className="py-2 px-2.5 whitespace-nowrap">
+                                              <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200 font-mono-num font-bold text-[10px]">
+                                                {rec.ritInfo.ritCategory}
+                                              </span>
+                                            </td>
+                                            <td className="py-2 px-2.5 font-mono-num whitespace-nowrap">
+                                              <span className="font-bold text-slate-900">{rec.tx.vehiclePlate}</span>
+                                              <span className="text-[10px] text-slate-500 ml-1.5">
+                                                {formatDisplayTicketNumber(rec.tx.ticketNumber)}
+                                              </span>
+                                            </td>
+                                            <td className="py-2 px-2.5 whitespace-nowrap">
+                                              <span className="font-semibold text-slate-800">{rec.tx.driverName}</span>
+                                              <span className="text-[10px] text-slate-500 ml-1.5 font-mono">
+                                                SJ: {rec.tx.suratJalanNumber || '-'}
+                                              </span>
+                                            </td>
+                                            <td className="py-2 px-2.5 text-right font-mono-num font-bold text-emerald-700 whitespace-nowrap">
+                                              {rec.nettoKg.toLocaleString('id-ID')} Kg
+                                            </td>
+                                            <td className="py-2 px-2.5 text-right font-mono-num font-semibold text-slate-800 whitespace-nowrap">
+                                              {rec.cumulativeNettoKg.toLocaleString('id-ID')} Kg
+                                            </td>
+                                            <td className="py-2 px-2.5 text-right font-mono-num whitespace-nowrap">
+                                              {rec.remainingAfterKg >= 0 ? (
+                                                <span className="font-bold text-amber-800">
+                                                  Sisa {rec.remainingAfterKg.toLocaleString('id-ID')} Kg (
+                                                  {rec.remainingAfterPct.toFixed(1)}%)
+                                                </span>
+                                              ) : (
+                                                <span className="font-bold text-rose-700">
+                                                  Lebih +{Math.abs(rec.remainingAfterKg).toLocaleString('id-ID')} Kg (+
+                                                  {Math.abs(rec.remainingAfterPct).toFixed(1)}%)
+                                                </span>
+                                              )}
+                                            </td>
+                                            <td className="py-2 px-2.5 text-right whitespace-nowrap">
+                                              <div className="inline-flex items-center gap-1">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setSelectedTimelineTx(rec.tx)}
+                                                  className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded border border-slate-300 cursor-pointer"
+                                                  title="Lihat Timeline Durasi"
+                                                >
+                                                  <History className="w-3 h-3 text-amber-700" />
+                                                </button>
+                                                {onOpenTicket && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => onOpenTicket(rec.tx)}
+                                                    className="p-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded cursor-pointer"
+                                                    title="Cetak Berita Acara In Out"
+                                                  >
+                                                    <Printer className="w-3 h-3" />
+                                                  </button>
+                                                )}
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Pagination Kontrol (Maksimal 10 Data PO per Halaman) */}
         {filteredPoToleranceList.length > 0 && (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 text-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-3 bg-slate-100/75 border-t border-slate-200/80 text-xs">
             <div className="text-slate-600 font-mono-num">
               Menampilkan{' '}
               <span className="font-bold text-slate-900">
@@ -1779,7 +1856,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 {filteredPoToleranceList.length}
               </span>{' '}
               PO · Halaman{' '}
-              <span className="font-bold text-amber-700">{safeTolerancePage}</span> /{' '}
+              <span className="font-bold text-amber-800">{safeTolerancePage}</span> /{' '}
               <span className="font-bold text-slate-900">{toleranceTotalPages}</span>{' '}
               <span className="text-[11px] text-slate-500">
                 (Maks. {TOLERANCE_PAGE_SIZE} data/halaman)
@@ -1827,7 +1904,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                         onClick={() => setTolerancePage(entry)}
                         className={`min-w-[30px] px-2 py-1.5 rounded-lg border font-mono-num font-bold transition-colors cursor-pointer ${
                           entry === safeTolerancePage
-                            ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                            ? 'bg-slate-700 text-white border-slate-700 shadow-2xs'
                             : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                         }`}
                       >

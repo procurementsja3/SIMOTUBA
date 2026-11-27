@@ -681,7 +681,7 @@ export const CoalReceivingHistoricalSection: React.FC<CoalReceivingHistoricalSec
               <div className="flex items-center gap-2">
                 <Layers className="w-4 h-4 text-amber-600" />
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  Tabel Rincian Penerimaan Batubara Ter-Create ({periodType === 'MINGGUAN' ? 'Mingguan' : periodType === 'BULANAN' ? 'Bulanan' : 'Tahunan'})
+                  Tabel Rincian Penerimaan Batubara ({periodType === 'MINGGUAN' ? 'Mingguan' : periodType === 'BULANAN' ? 'Bulanan' : 'Tahunan'})
                 </h4>
               </div>
               <div className="text-xs text-slate-600 font-medium">

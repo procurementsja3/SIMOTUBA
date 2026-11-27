@@ -8,6 +8,10 @@ import {
   UserRole,
   AuditEntityType,
 } from '../types/coal';
+import {
+  normalizeSupplierName,
+  replaceBorneoNameInText,
+} from '../utils/supplierUtils';
 
 export const GOOGLE_APPS_SCRIPT_TEMPLATE = `/**
  * =========================================================================
@@ -326,13 +330,28 @@ export const googleSheetService = {
     }
 
     try {
+      const normalizedPayload: SyncPayload = {
+        purchaseOrders: payload.purchaseOrders.map((po) => ({
+          ...po,
+          supplierName: normalizeSupplierName(po.supplierName),
+        })),
+        schedules: payload.schedules.map((sch) => ({
+          ...sch,
+          supplierName: normalizeSupplierName(sch.supplierName),
+        })),
+        transactions: payload.transactions.map((tx) => ({
+          ...tx,
+          supplierName: normalizeSupplierName(tx.supplierName),
+        })),
+      };
+
       // Send via fetch with text/plain to avoid CORS preflight rejection by Google Apps Script
       await fetch(webhookUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'text/plain;charset=utf-8',
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(normalizedPayload),
         mode: 'no-cors', // Essential for Google Apps Script web apps in browser client
       });
 
@@ -584,7 +603,7 @@ function serializePoRow(po: PurchaseOrder): (string | number)[] {
     po.id,
     po.poNumber || '',
     po.supplierCode || '-',
-    po.supplierName || '',
+    normalizeSupplierName(po.supplierName),
     po.contractDate || '',
     target,
     received,
@@ -611,7 +630,7 @@ function deserializePoRow(row: unknown[], index: number): PurchaseOrder | null {
     id,
     poNumber: poNumber || id,
     supplierCode: strCell(row, 2, '-'),
-    supplierName: strCell(row, 3, 'Supplier'),
+    supplierName: normalizeSupplierName(strCell(row, 3, 'Supplier')) || 'Supplier',
     contractDate: strCell(row, 4, new Date().toISOString().slice(0, 10)),
     targetTonnage: numCell(row, 5, 0),
     receivedTonnage: numCell(row, 6, 0),
@@ -636,7 +655,7 @@ function serializeScheduleRow(sch: ArrivalSchedule): (string | number)[] {
     sch.id,
     sch.poId || '',
     sch.poNumber || '',
-    sch.supplierName || '',
+    normalizeSupplierName(sch.supplierName),
     sch.etaDateTime || '',
     Number(sch.estimatedTonnage) || 0,
     Number(sch.estimatedTruckCount) || 1,
@@ -656,7 +675,7 @@ function deserializeScheduleRow(row: unknown[], index: number): ArrivalSchedule 
     id: id || `SCH-SHEET-${index + 1}`,
     poId,
     poNumber,
-    supplierName: strCell(row, 3, ''),
+    supplierName: normalizeSupplierName(strCell(row, 3, '')),
     etaDateTime: strCell(row, 4, new Date().toISOString().slice(0, 10)),
     estimatedTonnage: numCell(row, 5, 30000),
     estimatedTruckCount: numCell(row, 6, 1),
@@ -676,7 +695,7 @@ function serializeTransactionRow(tx: CoalTransaction): (string | number)[] {
     tx.poId || '',
     tx.poNumber || '',
     tx.scheduleId || '',
-    tx.supplierName || '',
+    normalizeSupplierName(tx.supplierName),
     tx.transporterName || '',
     tx.vehiclePlate || '',
     tx.driverName || '',
@@ -817,7 +836,7 @@ function deserializeTransactionRow(row: unknown[], index: number): CoalTransacti
     poId: strCell(row, 4),
     poNumber: strCell(row, 5),
     scheduleId: strCell(row, 6) || undefined,
-    supplierName: strCell(row, 7),
+    supplierName: normalizeSupplierName(strCell(row, 7)),
     transporterName: strCell(row, 8),
     vehiclePlate: strCell(row, 9),
     driverName: strCell(row, 10),
@@ -883,16 +902,17 @@ function serializeAuditRow(log: AuditLogEntry): (string | number)[] {
     log.action || '',
     log.entityType || 'SYSTEM',
     log.entityId || '',
-    log.summary || '',
-    log.details || '',
+    replaceBorneoNameInText(log.summary || ''),
+    replaceBorneoNameInText(log.details || ''),
   ];
 }
 
 function deserializeAuditRow(row: unknown[], index: number): AuditLogEntry | null {
   const id = strCell(row, 0);
-  const summary = strCell(row, 8);
+  const summary = replaceBorneoNameInText(strCell(row, 8));
   if (!id && !summary) return null;
   const email = strCell(row, 3, '');
+  const detailsRaw = strCell(row, 9);
   return {
     id: id || `LOG-SHEET-${index + 1}`,
     timestamp: strCell(row, 1, new Date().toISOString()),
@@ -904,7 +924,7 @@ function deserializeAuditRow(row: unknown[], index: number): AuditLogEntry | nul
     entityType: (strCell(row, 6, 'SYSTEM') as AuditEntityType) || 'SYSTEM',
     entityId: strCell(row, 7, 'SYSTEM'),
     summary,
-    details: strCell(row, 9) || undefined,
+    details: detailsRaw ? replaceBorneoNameInText(detailsRaw) : undefined,
   };
 }
 

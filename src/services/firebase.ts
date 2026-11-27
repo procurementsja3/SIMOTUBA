@@ -20,6 +20,7 @@ import {
 } from 'firebase/firestore';
 import appletFirebaseConfig from '../../firebase-applet-config.json';
 import { PurchaseOrder, ArrivalSchedule, CoalTransaction } from '../types/coal';
+import { normalizeSupplierName } from '../utils/supplierUtils';
 
 // =========================================================================
 // 1. GOOGLE SHEETS OAUTH HELPER (Separate Applet Project)
@@ -286,6 +287,7 @@ export const simotubaFirestoreService = {
         id: po.id,
         data: cleanForFirestore({
           ...po,
+          supplierName: normalizeSupplierName(po.supplierName),
           createdAt: po.createdAt || now,
           updatedAt: now,
         }) as unknown as Record<string, unknown>,
@@ -306,6 +308,7 @@ export const simotubaFirestoreService = {
         id: po.id,
         data: cleanForFirestore({
           ...po,
+          supplierName: normalizeSupplierName(po.supplierName),
           updatedAt: now,
         }) as unknown as Record<string, unknown>,
       },
@@ -315,6 +318,7 @@ export const simotubaFirestoreService = {
         id: sch.id,
         data: cleanForFirestore({
           ...sch,
+          supplierName: normalizeSupplierName(sch.supplierName),
           updatedAt: now,
         }) as unknown as Record<string, unknown>,
       })),
@@ -324,6 +328,7 @@ export const simotubaFirestoreService = {
         id: tx.id,
         data: cleanForFirestore({
           ...tx,
+          supplierName: normalizeSupplierName(tx.supplierName),
           updatedAt: now,
         }) as unknown as Record<string, unknown>,
       })),
@@ -359,6 +364,7 @@ export const simotubaFirestoreService = {
         id: sch.id,
         data: cleanForFirestore({
           ...sch,
+          supplierName: normalizeSupplierName(sch.supplierName),
           createdAt: sch.createdAt || now,
           updatedAt: sch.updatedAt || now,
         }) as unknown as Record<string, unknown>,
@@ -380,6 +386,7 @@ export const simotubaFirestoreService = {
         id: tx.id,
         data: cleanForFirestore({
           ...tx,
+          supplierName: normalizeSupplierName(tx.supplierName),
           createdAt: tx.createdAt || now,
           updatedAt: tx.updatedAt || now,
         }) as unknown as Record<string, unknown>,
@@ -403,6 +410,7 @@ export const simotubaFirestoreService = {
         id: po.id,
         data: cleanForFirestore({
           ...po,
+          supplierName: normalizeSupplierName(po.supplierName),
           createdAt: po.createdAt || now,
           updatedAt: po.updatedAt || now,
         }) as unknown as Record<string, unknown>,
@@ -413,6 +421,7 @@ export const simotubaFirestoreService = {
         id: sch.id,
         data: cleanForFirestore({
           ...sch,
+          supplierName: normalizeSupplierName(sch.supplierName),
           createdAt: sch.createdAt || now,
           updatedAt: sch.updatedAt || now,
         }) as unknown as Record<string, unknown>,
@@ -423,6 +432,7 @@ export const simotubaFirestoreService = {
         id: tx.id,
         data: cleanForFirestore({
           ...tx,
+          supplierName: normalizeSupplierName(tx.supplierName),
           createdAt: tx.createdAt || now,
           updatedAt: tx.updatedAt || now,
         }) as unknown as Record<string, unknown>,
@@ -466,6 +476,7 @@ export const simotubaFirestoreService = {
         id: params.schedule.id,
         data: cleanForFirestore({
           ...params.schedule,
+          supplierName: normalizeSupplierName(params.schedule.supplierName),
           createdAt: params.schedule.createdAt || now,
           updatedAt: params.schedule.updatedAt || now,
         }) as unknown as Record<string, unknown>,
@@ -478,6 +489,7 @@ export const simotubaFirestoreService = {
         id: params.po.id,
         data: cleanForFirestore({
           ...params.po,
+          supplierName: normalizeSupplierName(params.po.supplierName),
           createdAt: params.po.createdAt || now,
           updatedAt: params.po.updatedAt || now,
         }) as unknown as Record<string, unknown>,
@@ -493,6 +505,7 @@ export const simotubaFirestoreService = {
       doc(simotubaDb, COLLECTIONS.TRANSACTIONS, sanitizeDocId(tx.id)),
       cleanForFirestore({
         ...tx,
+        supplierName: normalizeSupplierName(tx.supplierName),
         createdAt: tx.createdAt || now,
         updatedAt: tx.updatedAt || now,
       }) as unknown as Record<string, unknown>,
@@ -513,6 +526,7 @@ export const simotubaFirestoreService = {
         id: params.transaction.id,
         data: cleanForFirestore({
           ...params.transaction,
+          supplierName: normalizeSupplierName(params.transaction.supplierName),
           createdAt: params.transaction.createdAt || now,
           updatedAt: now,
         }) as unknown as Record<string, unknown>,
@@ -525,6 +539,7 @@ export const simotubaFirestoreService = {
         id: params.schedule.id,
         data: cleanForFirestore({
           ...params.schedule,
+          supplierName: normalizeSupplierName(params.schedule.supplierName),
           updatedAt: now,
         }) as unknown as Record<string, unknown>,
       });
@@ -536,6 +551,7 @@ export const simotubaFirestoreService = {
         id: params.po.id,
         data: cleanForFirestore({
           ...params.po,
+          supplierName: normalizeSupplierName(params.po.supplierName),
           updatedAt: now,
         }) as unknown as Record<string, unknown>,
       });
@@ -557,6 +573,7 @@ export const simotubaFirestoreService = {
         id: po.id,
         data: cleanForFirestore({
           ...po,
+          supplierName: normalizeSupplierName(po.supplierName),
           createdAt: po.createdAt || now,
           updatedAt: now,
         }) as unknown as Record<string, unknown>,
@@ -567,6 +584,7 @@ export const simotubaFirestoreService = {
         id: sch.id,
         data: cleanForFirestore({
           ...sch,
+          supplierName: normalizeSupplierName(sch.supplierName),
           createdAt: sch.createdAt || now,
           updatedAt: now,
         }) as unknown as Record<string, unknown>,
@@ -577,6 +595,7 @@ export const simotubaFirestoreService = {
         id: tx.id,
         data: cleanForFirestore({
           ...tx,
+          supplierName: normalizeSupplierName(tx.supplierName),
           createdAt: tx.createdAt || now,
           updatedAt: now,
         }) as unknown as Record<string, unknown>,

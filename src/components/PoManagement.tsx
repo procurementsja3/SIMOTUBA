@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { PurchaseOrder, ArrivalSchedule, CoalTransaction } from '../types/coal';
 import { MAX_SCHEDULES_PER_PO } from './ScheduleArrivals';
+import { normalizeSupplierName } from '../utils/supplierUtils';
 
 export interface SupplierPoInputItem {
   id: string;
@@ -343,8 +344,8 @@ export const PoManagement: React.FC<PoManagementProps> = ({
     const newPos: PurchaseOrder[] = supplierItems.map((item, idx) => ({
       id: `PO-${Date.now()}-${idx}-${Math.floor(100 + Math.random() * 900)}`,
       poNumber: item.poNumber.trim(),
-      supplierName: item.supplierName.trim(),
-      supplierCode: item.supplierCode.trim() || item.supplierName.trim().substring(0, 3).toUpperCase(),
+      supplierName: normalizeSupplierName(item.supplierName),
+      supplierCode: item.supplierCode.trim() || normalizeSupplierName(item.supplierName).substring(0, 3).toUpperCase(),
       contractDate: item.contractDate,
       targetTonnage: Number(item.targetTonnage),
       receivedTonnage: 0,
@@ -411,8 +412,8 @@ export const PoManagement: React.FC<PoManagementProps> = ({
     const updated: PurchaseOrder = {
       ...editingPo,
       poNumber: editFormData.poNumber.trim(),
-      supplierName: editFormData.supplierName.trim(),
-      supplierCode: editFormData.supplierCode.trim() || editFormData.supplierName.trim().substring(0, 3).toUpperCase(),
+      supplierName: normalizeSupplierName(editFormData.supplierName),
+      supplierCode: editFormData.supplierCode.trim() || normalizeSupplierName(editFormData.supplierName).substring(0, 3).toUpperCase(),
       contractDate: editFormData.contractDate,
       targetTonnage: Number(editFormData.targetTonnage),
       tolerancePercentage: Number(editFormData.tolerancePercentage) || 5,

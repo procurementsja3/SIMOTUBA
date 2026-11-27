@@ -12,6 +12,12 @@ import {
   INITIAL_TRANSACTIONS,
 } from '../data/initialData';
 import { calculateToleranceMetrics } from '../utils/toleranceUtils';
+import {
+  normalizePurchaseOrdersSupplier,
+  normalizeSchedulesSupplier,
+  normalizeTransactionsSupplier,
+  normalizeAuditLogsSupplier,
+} from '../utils/supplierUtils';
 
 const STORAGE_KEYS = {
   PURCHASE_ORDERS: 'coal_monitor_pos_v2',
@@ -373,7 +379,14 @@ export const storageService = {
       migrateDefaultToleranceToFivePercent();
       const data = localStorage.getItem(STORAGE_KEYS.PURCHASE_ORDERS);
       if (!data) return [];
-      return JSON.parse(data);
+      const parsed: PurchaseOrder[] = JSON.parse(data);
+      if (!Array.isArray(parsed)) return [];
+      const { items, changedIds } = normalizePurchaseOrdersSupplier(parsed);
+      if (changedIds.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.PURCHASE_ORDERS, JSON.stringify(items));
+        this.markLocalUpserts('po', changedIds);
+      }
+      return items;
     } catch (e) {
       console.error('Failed reading POs from storage:', e);
       return [];
@@ -381,7 +394,8 @@ export const storageService = {
   },
 
   savePurchaseOrders(pos: PurchaseOrder[]): void {
-    localStorage.setItem(STORAGE_KEYS.PURCHASE_ORDERS, JSON.stringify(pos));
+    const { items } = normalizePurchaseOrdersSupplier(pos);
+    localStorage.setItem(STORAGE_KEYS.PURCHASE_ORDERS, JSON.stringify(items));
   },
 
   getSchedules(): ArrivalSchedule[] {
@@ -389,7 +403,14 @@ export const storageService = {
       purgeDummyData();
       const data = localStorage.getItem(STORAGE_KEYS.SCHEDULES);
       if (!data) return [];
-      return JSON.parse(data);
+      const parsed: ArrivalSchedule[] = JSON.parse(data);
+      if (!Array.isArray(parsed)) return [];
+      const { items, changedIds } = normalizeSchedulesSupplier(parsed);
+      if (changedIds.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(items));
+        this.markLocalUpserts('schedule', changedIds);
+      }
+      return items;
     } catch (e) {
       console.error('Failed reading schedules from storage:', e);
       return [];
@@ -397,7 +418,8 @@ export const storageService = {
   },
 
   saveSchedules(schedules: ArrivalSchedule[]): void {
-    localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(schedules));
+    const { items } = normalizeSchedulesSupplier(schedules);
+    localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(items));
   },
 
   getTransactions(): CoalTransaction[] {
@@ -440,10 +462,14 @@ export const storageService = {
         }
         return current;
       });
-      if (needsResave) {
-        this.saveTransactions(migrated);
+      const { items: supplierNormalized, changedIds } = normalizeTransactionsSupplier(migrated);
+      if (needsResave || changedIds.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(supplierNormalized));
+        if (changedIds.length > 0) {
+          this.markLocalUpserts('transaction', changedIds);
+        }
       }
-      return migrated;
+      return supplierNormalized;
     } catch (e) {
       console.error('Failed reading transactions from storage:', e);
       return INITIAL_TRANSACTIONS;
@@ -451,7 +477,8 @@ export const storageService = {
   },
 
   saveTransactions(transactions: CoalTransaction[]): void {
-    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(transactions));
+    const { items } = normalizeTransactionsSupplier(transactions);
+    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(items));
   },
 
   getSheetConfig(): GoogleSheetConfig {
@@ -475,7 +502,12 @@ export const storageService = {
       const data = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
       if (!data) return [];
       const parsed = JSON.parse(data);
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) return [];
+      const { items, changed } = normalizeAuditLogsSupplier(parsed);
+      if (changed) {
+        localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(items.slice(0, 500)));
+      }
+      return items;
     } catch {
       return [];
     }
@@ -483,7 +515,8 @@ export const storageService = {
 
   saveAuditLogs(logs: AuditLogEntry[]): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(logs.slice(0, 500)));
+      const { items } = normalizeAuditLogsSupplier(logs);
+      localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(items.slice(0, 500)));
     } catch (e) {
       console.error('Failed saving audit logs:', e);
     }

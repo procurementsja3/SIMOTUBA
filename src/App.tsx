@@ -23,6 +23,11 @@ import {
 import { storageService } from './services/storageService';
 import { evaluatePoQuotaStatus } from './utils/poQuotaUtils';
 import {
+  normalizePurchaseOrdersSupplier,
+  normalizeSchedulesSupplier,
+  normalizeTransactionsSupplier,
+} from './utils/supplierUtils';
+import {
   googleSheetService,
   sheetsApiService,
   SheetsApiError,
@@ -259,9 +264,13 @@ export default function App() {
             (a, b) => new Date(b.gateInTime || 0).getTime() - new Date(a.gateInTime || 0).getTime()
           );
 
-        const poMerge = storageService.mergeCloudCollection('po', cloud.purchaseOrders, latestLocalPos);
-        const schMerge = storageService.mergeCloudCollection('schedule', cloud.schedules, latestLocalSchs);
-        const txMerge = storageService.mergeCloudCollection('transaction', cloud.transactions, latestLocalTxs);
+        const cloudPoNorm = normalizePurchaseOrdersSupplier(cloud.purchaseOrders);
+        const cloudSchNorm = normalizeSchedulesSupplier(cloud.schedules);
+        const cloudTxNorm = normalizeTransactionsSupplier(cloud.transactions);
+
+        const poMerge = storageService.mergeCloudCollection('po', cloudPoNorm.items, latestLocalPos);
+        const schMerge = storageService.mergeCloudCollection('schedule', cloudSchNorm.items, latestLocalSchs);
+        const txMerge = storageService.mergeCloudCollection('transaction', cloudTxNorm.items, latestLocalTxs);
 
         const nextPosMerged = sortPos(poMerge.merged);
         const nextSchsMerged = sortSchedules(schMerge.merged);
@@ -274,6 +283,17 @@ export default function App() {
         setTransactions(nextTxsMerged);
         storageService.saveTransactions(nextTxsMerged);
 
+        // Queue any migrated cloud documents so Firestore itself is updated permanently
+        if (cloudPoNorm.changedIds.length > 0) {
+          storageService.markLocalUpserts('po', cloudPoNorm.changedIds);
+        }
+        if (cloudSchNorm.changedIds.length > 0) {
+          storageService.markLocalUpserts('schedule', cloudSchNorm.changedIds);
+        }
+        if (cloudTxNorm.changedIds.length > 0) {
+          storageService.markLocalUpserts('transaction', cloudTxNorm.changedIds);
+        }
+
         if (isDisposed) return;
 
         // Push any unsynced local creates/updates/deletes up to Firestore
@@ -282,21 +302,24 @@ export default function App() {
         unsubscribeFirestore = simotubaFirestoreService.subscribeAll({
           onPurchaseOrders: (nextPos) => {
             const latestLocal = storageService.getPurchaseOrders();
-            const { merged } = storageService.mergeCloudCollection('po', nextPos, latestLocal);
+            const norm = normalizePurchaseOrdersSupplier(nextPos);
+            const { merged } = storageService.mergeCloudCollection('po', norm.items, latestLocal);
             const sorted = sortPos(merged);
             setPurchaseOrders(sorted);
             storageService.savePurchaseOrders(sorted);
           },
           onSchedules: (nextSchs) => {
             const latestLocal = storageService.getSchedules();
-            const { merged } = storageService.mergeCloudCollection('schedule', nextSchs, latestLocal);
+            const norm = normalizeSchedulesSupplier(nextSchs);
+            const { merged } = storageService.mergeCloudCollection('schedule', norm.items, latestLocal);
             const sorted = sortSchedules(merged);
             setSchedules(sorted);
             storageService.saveSchedules(sorted);
           },
           onTransactions: (nextTxs) => {
             const latestLocal = storageService.getTransactions();
-            const { merged } = storageService.mergeCloudCollection('transaction', nextTxs, latestLocal);
+            const norm = normalizeTransactionsSupplier(nextTxs);
+            const { merged } = storageService.mergeCloudCollection('transaction', norm.items, latestLocal);
             const sorted = sortTransactions(merged);
             setTransactions(sorted);
             storageService.saveTransactions(sorted);

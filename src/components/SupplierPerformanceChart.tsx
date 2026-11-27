@@ -28,6 +28,9 @@ interface SupplierPerformanceItem {
   poCount: number;
   avgShrinkagePct: number | null;
   isTopPerformer: boolean;
+  thisWeekTruckCount: number;
+  thisWeekNettoTons: number;
+  isActiveThisWeek: boolean;
 }
 
 interface DeliverySupplierBreakdown {
@@ -231,6 +234,7 @@ export const SupplierPerformanceChart: React.FC<SupplierPerformanceChartProps> =
   // MODE 1: PERFORMA SUPPLIER (Realisasi Tonase Netto vs Target Kuota PO)
   // =========================================================================
   const supplierData: SupplierPerformanceItem[] = useMemo(() => {
+    const currentWeekKey = getPeriodBucketMeta(new Date(), 'MINGGUAN').key;
     const map = new Map<
       string,
       {
@@ -241,6 +245,9 @@ export const SupplierPerformanceChart: React.FC<SupplierPerformanceChartProps> =
         poCount: number;
         shrinkageSum: number;
         shrinkageCount: number;
+        thisWeekTruckCount: number;
+        thisWeekNettoTons: number;
+        activeInTerminalCount: number;
       }
     >();
 
@@ -256,6 +263,9 @@ export const SupplierPerformanceChart: React.FC<SupplierPerformanceChartProps> =
           poCount: 0,
           shrinkageSum: 0,
           shrinkageCount: 0,
+          thisWeekTruckCount: 0,
+          thisWeekNettoTons: 0,
+          activeInTerminalCount: 0,
         });
       }
       return map.get(key)!;
@@ -274,11 +284,28 @@ export const SupplierPerformanceChart: React.FC<SupplierPerformanceChartProps> =
       const name = (tx.supplierName || '').trim();
       if (!name) return;
       const netto = getTransactionNettoTon(tx);
-      if (tx.status !== 'COMPLETED' && netto <= 0) return;
+      const isInTerminal = tx.status !== 'COMPLETED';
+      if (tx.status !== 'COMPLETED' && netto <= 0) {
+        // Still track if actively in terminal this week
+        const dtActive = getTransactionDate(tx);
+        if (dtActive && getPeriodBucketMeta(dtActive, 'MINGGUAN').key === currentWeekKey) {
+          const entry = ensureEntry(name);
+          entry.activeInTerminalCount += 1;
+        }
+        return;
+      }
 
       const entry = ensureEntry(name);
       entry.nettoTons += netto;
       entry.truckCount += 1;
+      if (isInTerminal) {
+        entry.activeInTerminalCount += 1;
+      }
+      const dt = getTransactionDate(tx);
+      if (dt && getPeriodBucketMeta(dt, 'MINGGUAN').key === currentWeekKey) {
+        entry.thisWeekTruckCount += 1;
+        entry.thisWeekNettoTons += netto;
+      }
       if (typeof tx.shrinkagePercentage === 'number' && !Number.isNaN(tx.shrinkagePercentage)) {
         entry.shrinkageSum += tx.shrinkagePercentage;
         entry.shrinkageCount += 1;
@@ -300,6 +327,9 @@ export const SupplierPerformanceChart: React.FC<SupplierPerformanceChartProps> =
           poCount: item.poCount,
           avgShrinkagePct,
           isTopPerformer: false,
+          thisWeekTruckCount: item.thisWeekTruckCount,
+          thisWeekNettoTons: item.thisWeekNettoTons,
+          isActiveThisWeek: item.thisWeekTruckCount > 0 || item.activeInTerminalCount > 0,
         };
       })
       .sort((a, b) => {
@@ -882,6 +912,10 @@ export const SupplierPerformanceChart: React.FC<SupplierPerformanceChartProps> =
                 <span className="w-3 h-3 rounded-xs bg-slate-200 border border-slate-400 inline-block" />
                 <span className="text-slate-700">Target Kuota PO</span>
               </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-300 inline-block" />
+                <span className="text-slate-700">Aktif Pengiriman Minggu Ini</span>
+              </div>
             </>
           )}
           {chartMode === 'AVG_DELIVERY' && (
@@ -1022,6 +1056,15 @@ export const SupplierPerformanceChart: React.FC<SupplierPerformanceChartProps> =
                           ? ` · Rata-rata Susut: ${item.avgShrinkagePct > 0 ? '+' : ''}${item.avgShrinkagePct.toFixed(2)}%`
                           : ''}
                       </span>
+                      <span
+                        className={`text-[10px] font-semibold leading-tight font-mono-num ${
+                          item.isActiveThisWeek ? 'text-emerald-700' : 'text-slate-400'
+                        }`}
+                      >
+                        {item.isActiveThisWeek
+                          ? `● Aktif Minggu Ini: ${item.thisWeekTruckCount} rit (${item.thisWeekNettoTons.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} T)`
+                          : 'Belum ada pengiriman minggu ini'}
+                      </span>
                     </div>
 
                     {/* Dual Bar Container */}
@@ -1036,16 +1079,25 @@ export const SupplierPerformanceChart: React.FC<SupplierPerformanceChartProps> =
                       {item.nettoTons > 0 && (
                         <div
                           className={`relative z-10 w-4/5 rounded-t transition-all duration-500 group-hover:brightness-105 shadow-xs ${
-                            item.isTopPerformer
-                              ? 'bg-gradient-to-t from-amber-600 to-amber-500 border-t-2 border-amber-300'
+                            item.isActiveThisWeek
+                              ? 'bg-gradient-to-t from-amber-600 to-amber-500 border-t-2 border-emerald-300'
                               : isAchieved
                                 ? 'bg-gradient-to-t from-amber-600 to-amber-500'
                                 : 'bg-gradient-to-t from-amber-700 to-amber-600'
                           }`}
                           style={{ height: `${Math.min(100, Math.max(8, actualHeightPct))}%` }}
                         >
-                          {item.isTopPerformer && (
-                            <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-300 animate-ping" />
+                          {item.isActiveThisWeek && (
+                            <>
+                              <span
+                                className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"
+                                title="Aktif pengiriman minggu ini"
+                              />
+                              <span
+                                className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white"
+                                title="Aktif pengiriman minggu ini"
+                              />
+                            </>
                           )}
                         </div>
                       )}
