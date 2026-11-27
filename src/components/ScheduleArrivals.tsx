@@ -21,7 +21,9 @@ import {
   Loader2,
   Check,
   SlidersHorizontal,
-  Copy
+  Copy,
+  ArrowDown,
+  ArrowUp
 } from 'lucide-react';
 import { PurchaseOrder, ArrivalSchedule, CoalTransaction } from '../types/coal';
 
@@ -448,83 +450,125 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
       .sort((a, b) => a.name.localeCompare(b.name, 'id-ID'));
   }, [schedules, purchaseOrders, transactions]);
 
-  // Filtered schedules for table view & mobile cards
-  const filteredSchedules = schedules.filter((sch) => {
-    const effStatus = getEffectiveScheduleStatus(sch);
+  // Urutan Tanggal ETA: default 'desc' (tanggal ETA paling akhir/terbaru di posisi atas)
+  const [etaSortDir, setEtaSortDir] = useState<'desc' | 'asc'>('desc');
 
-    // 1. Top Bar Status Filter
-    if (statusFilter !== 'ALL') {
-      if (statusFilter === 'IN_PROCESS') {
-        if (!OPERATIONAL_PROGRESS_STATUSES.has(effStatus) || effStatus === 'COMPLETED' || effStatus === 'REJECTED') {
+  const parseEtaSortValue = (raw?: string): number => {
+    if (!raw) return 0;
+    const trimmed = raw.trim();
+    // Format YYYY-MM-DD atau ISO
+    const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+      const y = Number(isoMatch[1]);
+      const m = Number(isoMatch[2]) - 1;
+      const d = Number(isoMatch[3]);
+      return new Date(y, m, d).getTime();
+    }
+    // Format DD/MM/YYYY
+    const idMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (idMatch) {
+      const d = Number(idMatch[1]);
+      const m = Number(idMatch[2]) - 1;
+      const y = Number(idMatch[3]);
+      return new Date(y, m, d).getTime();
+    }
+    const parsed = new Date(trimmed).getTime();
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+
+  // Filtered schedules for table view & mobile cards, sorted by Tgl ETA
+  const filteredSchedules = schedules
+    .filter((sch) => {
+      const effStatus = getEffectiveScheduleStatus(sch);
+
+      // 1. Top Bar Status Filter
+      if (statusFilter !== 'ALL') {
+        if (statusFilter === 'IN_PROCESS') {
+          if (!OPERATIONAL_PROGRESS_STATUSES.has(effStatus) || effStatus === 'COMPLETED' || effStatus === 'REJECTED') {
+            return false;
+          }
+        } else if (effStatus !== statusFilter) {
           return false;
         }
-      } else if (effStatus !== statusFilter) {
-        return false;
       }
-    }
 
-    // 3. Col Search: ID Jadwal
-    if (colSearchId) {
-      const q = colSearchId.toLowerCase().trim();
-      if (!sch.id.toLowerCase().includes(q)) return false;
-    }
+      // 3. Col Search: ID Jadwal
+      if (colSearchId) {
+        const q = colSearchId.toLowerCase().trim();
+        if (!sch.id.toLowerCase().includes(q)) return false;
+      }
 
-    // 4. Col Search: Nomor PO & Kuota
-    if (colSearchPo) {
-      const q = colSearchPo.toLowerCase().trim();
-      if (!sch.poNumber.toLowerCase().includes(q)) return false;
-    }
+      // 4. Col Search: Nomor PO & Kuota
+      if (colSearchPo) {
+        const q = colSearchPo.toLowerCase().trim();
+        if (!sch.poNumber.toLowerCase().includes(q)) return false;
+      }
 
-    // 5. Col Search: Tanggal Estimasi Tiba (ETA)
-    if (colSearchEta) {
-      const q = colSearchEta.toLowerCase().trim();
-      const rawEta = sch.etaDateTime || '';
-      const formattedEta = formatDateOnly(rawEta).toLowerCase();
-      if (!rawEta.toLowerCase().includes(q) && !formattedEta.includes(q)) return false;
-    }
+      // 5. Col Search: Tanggal Estimasi Tiba (ETA)
+      if (colSearchEta) {
+        const q = colSearchEta.toLowerCase().trim();
+        const rawEta = sch.etaDateTime || '';
+        const formattedEta = formatDateOnly(rawEta).toLowerCase();
+        if (!rawEta.toLowerCase().includes(q) && !formattedEta.includes(q)) return false;
+      }
 
-    // 6. Col Search: Estimasi Berat Muatan (Kg)
-    if (colSearchTonnage) {
-      const q = colSearchTonnage.toLowerCase().trim().replace(/[,.]/g, '');
-      const rawTon = String(sch.estimatedTonnage);
-      const formattedTon = Number(sch.estimatedTonnage).toLocaleString('id-ID');
-      const tonVal = (Number(sch.estimatedTonnage) / 1000).toString();
-      if (!rawTon.includes(q) && !formattedTon.includes(colSearchTonnage.trim()) && !tonVal.includes(q)) return false;
-    }
+      // 6. Col Search: Estimasi Berat Muatan (Kg)
+      if (colSearchTonnage) {
+        const q = colSearchTonnage.toLowerCase().trim().replace(/[,.]/g, '');
+        const rawTon = String(sch.estimatedTonnage);
+        const formattedTon = Number(sch.estimatedTonnage).toLocaleString('id-ID');
+        const tonVal = (Number(sch.estimatedTonnage) / 1000).toString();
+        if (!rawTon.includes(q) && !formattedTon.includes(colSearchTonnage.trim()) && !tonVal.includes(q)) return false;
+      }
 
-    // 7. Col Search: Estimasi Ritase
-    if (colSearchTruck) {
-      const q = colSearchTruck.trim();
-      const truckCount = String(sch.estimatedTruckCount || 1);
-      if (!truckCount.includes(q)) return false;
-    }
+      // 7. Col Search: Estimasi Ritase
+      if (colSearchTruck) {
+        const q = colSearchTruck.trim();
+        const truckCount = String(sch.estimatedTruckCount || 1);
+        if (!truckCount.includes(q)) return false;
+      }
 
-    // 8. Col Filter: Nama Supplier (Dropdown Supplier Terdaftar)
-    if (colSearchSupplier) {
-      const selectedSup = colSearchSupplier.trim().toLowerCase();
-      if ((sch.supplierName || '').trim().toLowerCase() !== selectedSup) return false;
-    }
+      // 8. Col Filter: Nama Supplier (Dropdown Supplier Terdaftar)
+      if (colSearchSupplier) {
+        const selectedSup = colSearchSupplier.trim().toLowerCase();
+        if ((sch.supplierName || '').trim().toLowerCase() !== selectedSup) return false;
+      }
 
-    // 9. Col Search: Status Kedatangan
-    if (colSearchStatus) {
-      if (colSearchStatus === 'IN_PROCESS') {
-        if (!OPERATIONAL_PROGRESS_STATUSES.has(effStatus) || effStatus === 'COMPLETED' || effStatus === 'REJECTED') {
+      // 9. Col Search: Status Kedatangan
+      if (colSearchStatus) {
+        if (colSearchStatus === 'IN_PROCESS') {
+          if (!OPERATIONAL_PROGRESS_STATUSES.has(effStatus) || effStatus === 'COMPLETED' || effStatus === 'REJECTED') {
+            return false;
+          }
+        } else if (effStatus !== colSearchStatus) {
           return false;
         }
-      } else if (effStatus !== colSearchStatus) {
-        return false;
       }
-    }
 
-    // 10. Col Search: Keterangan
-    if (colSearchRemarks) {
-      const q = colSearchRemarks.toLowerCase().trim();
-      const remarks = (sch.remarks || '').toLowerCase();
-      if (!remarks.includes(q)) return false;
-    }
+      // 10. Col Search: Keterangan
+      if (colSearchRemarks) {
+        const q = colSearchRemarks.toLowerCase().trim();
+        const remarks = (sch.remarks || '').toLowerCase();
+        if (!remarks.includes(q)) return false;
+      }
 
-    return true;
-  });
+      return true;
+    })
+    .sort((a, b) => {
+      const etaA = parseEtaSortValue(a.etaDateTime);
+      const etaB = parseEtaSortValue(b.etaDateTime);
+      if (etaA !== etaB) {
+        return etaSortDir === 'desc' ? etaB - etaA : etaA - etaB;
+      }
+      const createdA = new Date(a.createdAt || 0).getTime() || 0;
+      const createdB = new Date(b.createdAt || 0).getTime() || 0;
+      if (createdA !== createdB) {
+        return etaSortDir === 'desc' ? createdB - createdA : createdA - createdB;
+      }
+      return etaSortDir === 'desc'
+        ? b.id.localeCompare(a.id)
+        : a.id.localeCompare(b.id);
+    });
 
   // Pagination Riwayat Jadwal Pengiriman (Maksimal 15 data per halaman)
   const SCHEDULE_PAGE_SIZE = 15;
@@ -542,6 +586,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
     colSearchSupplier,
     colSearchStatus,
     colSearchRemarks,
+    etaSortDir,
   ]);
 
   const totalSchedulePages = Math.max(1, Math.ceil(filteredSchedules.length / SCHEDULE_PAGE_SIZE));
@@ -1350,7 +1395,25 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
               <tr>
                 <th className="py-2.5 px-2 whitespace-nowrap w-[108px]">ID Jadwal</th>
                 <th className="py-2.5 px-2 whitespace-nowrap w-[112px]">No. PO & Kuota</th>
-                <th className="py-2.5 px-2 whitespace-nowrap w-[100px]">Tgl ETA</th>
+                <th className="py-2.5 px-2 whitespace-nowrap w-[108px]">
+                  <button
+                    type="button"
+                    onClick={() => setEtaSortDir((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
+                    className="inline-flex items-center gap-1 font-bold uppercase tracking-wide text-slate-700 hover:text-amber-700 transition-colors cursor-pointer"
+                    title={
+                      etaSortDir === 'desc'
+                        ? 'Urut Tanggal ETA terbaru/terakhir di atas (klik untuk balik ke terlama di atas)'
+                        : 'Urut Tanggal ETA terlama di atas (klik untuk balik ke terbaru/terakhir di atas)'
+                    }
+                  >
+                    <span>Tgl ETA</span>
+                    {etaSortDir === 'desc' ? (
+                      <ArrowDown className="w-3 h-3 text-amber-700 shrink-0" />
+                    ) : (
+                      <ArrowUp className="w-3 h-3 text-amber-700 shrink-0" />
+                    )}
+                  </button>
+                </th>
                 <th className="py-2.5 px-2 whitespace-nowrap text-right w-[96px]">Est. Berat</th>
                 <th className="py-2.5 px-2 whitespace-nowrap text-center w-[72px]">Ritase</th>
                 <th className="py-2.5 px-2 whitespace-nowrap w-[155px]">Nama Supplier</th>
