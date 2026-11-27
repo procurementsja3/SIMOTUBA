@@ -11,8 +11,6 @@ import {
   FileSpreadsheet, 
   ChevronDown, 
   ChevronRight, 
-  ChevronLeft,
-  Menu,
   X,
   History,
   Flame
@@ -23,7 +21,7 @@ interface SidebarProps {
   activeTab: ActiveTab;
   onSelectTab: (tab: ActiveTab) => void;
   isCollapsed: boolean;
-  onToggleCollapse: () => void;
+  onToggleCollapse?: () => void;
   isMobileOpen: boolean;
   onCloseMobile: () => void;
   queueCounts: {
@@ -54,7 +52,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onSelectTab,
   isCollapsed,
-  onToggleCollapse,
   isMobileOpen,
   onCloseMobile,
   queueCounts,
@@ -354,27 +351,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             );
           })}
-        </div>
-
-        {/* Sidebar Footer: Quick Info & Collapse/Expand Toggle */}
-        <div className="p-3 border-t border-slate-800/80 bg-slate-950/70 shrink-0 space-y-2">
-
-          {/* Toggle Expand / Collapse Button (Desktop) */}
-          <button
-            type="button"
-            onClick={onToggleCollapse}
-            className="w-full hidden lg:flex items-center justify-center gap-2 p-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-900 transition-colors border border-transparent hover:border-slate-800"
-            title={isCollapsed ? 'Perluas Sidebar' : 'Ciutkan Sidebar'}
-          >
-            {isCollapsed ? (
-              <ChevronRight className="w-4 h-4 text-amber-400" />
-            ) : (
-              <>
-                <ChevronLeft className="w-4 h-4 text-amber-400" />
-                <span>Perkecil Sidebar</span>
-              </>
-            )}
-          </button>
         </div>
       </aside>
     </>
