@@ -5,13 +5,15 @@ import {
   AuditLogEntry,
 } from '../types/coal';
 
-const BORNEO_CANONICAL_NAME = 'BORNEO BARA ABADI, PT';
-const BORNEO_EXACT_PATTERN = /^(?:PT\.?\s+)?BORNEO\s+BARA\s+ABADI(?:,?\s*PT\.?)?$/i;
-const BORNEO_INLINE_PATTERN = /\bPT\.?\s+BORNEO\s+BARA\s+ABADI\b/gi;
+const BORNEO_CANONICAL_NAME = 'BORNEO BARA ABADI, CV';
+const BORNEO_EXACT_PATTERN =
+  /^(?:(?:PT|CV)\.?\s+)?BORNEO\s+BARA\s+ABADI(?:(?:\s*,\s*|\s+)(?:PT|CV)\.?)?$/i;
+const BORNEO_INLINE_PATTERN =
+  /(?:\b(?:PT|CV)\.?\s+)?\bBORNEO\s+BARA\s+ABADI(?:(?:\s*,\s*|\s+)(?:PT|CV)\b\.?)?/gi;
 
 /**
- * Menormalkan nama supplier agar format "PT BORNEO BARA ABADI" (beserta variasi ejaan/titik/spasi)
- * secara konsisten menggunakan format resmi "BORNEO BARA ABADI, PT".
+ * Menormalkan nama supplier agar semua variasi "BORNEO BARA ABADI, PT" / "PT BORNEO BARA ABADI" / "CV BORNEO BARA ABADI"
+ * (beserta variasi ejaan/titik/spasi) secara konsisten menggunakan format resmi "BORNEO BARA ABADI, CV".
  */
 export function normalizeSupplierName(raw?: string | null): string {
   if (!raw) return '';
@@ -24,7 +26,8 @@ export function normalizeSupplierName(raw?: string | null): string {
 }
 
 /**
- * Mengganti kemunculan "PT BORNEO BARA ABADI" di dalam teks bebas (misalnya audit log).
+ * Mengganti kemunculan "BORNEO BARA ABADI, PT" / "PT BORNEO BARA ABADI" / variasi lainnya
+ * di dalam teks bebas (misalnya audit log) menjadi "BORNEO BARA ABADI, CV".
  */
 export function replaceBorneoNameInText(text?: string | null): string {
   if (!text) return '';
