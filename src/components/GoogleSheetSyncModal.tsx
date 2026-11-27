@@ -19,7 +19,13 @@ import {
   ShieldCheck,
   X,
 } from 'lucide-react';
-import { GoogleSheetConfig, PurchaseOrder, ArrivalSchedule, CoalTransaction } from '../types/coal';
+import {
+  GoogleSheetConfig,
+  PurchaseOrder,
+  ArrivalSchedule,
+  CoalTransaction,
+  CoalOutgoingRecord,
+} from '../types/coal';
 import {
   GOOGLE_APPS_SCRIPT_TEMPLATE,
   googleSheetService,
@@ -27,6 +33,8 @@ import {
   SCHEDULE_HEADERS,
   TRANSACTION_HEADERS,
   AUDIT_HEADERS,
+  OUTGOING_HEADERS,
+  OUTGOING_RECAP_HEADERS,
   SHEET_TABS,
 } from '../services/googleSheetService';
 import { GoogleSignInButton } from './GoogleSignInButton';
@@ -37,6 +45,7 @@ interface GoogleSheetSyncModalProps {
   transactions: CoalTransaction[];
   purchaseOrders: PurchaseOrder[];
   schedules: ArrivalSchedule[];
+  coalOutgoing?: CoalOutgoingRecord[];
   onTriggerSync: () => Promise<void>;
   isSyncing: boolean;
   // Google Sheets API Direct Database props
@@ -60,6 +69,7 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
   transactions,
   purchaseOrders,
   schedules,
+  coalOutgoing = [],
   onTriggerSync,
   isSyncing,
   hasSheetsToken,
@@ -180,7 +190,7 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
               )}
             </h2>
             <p className="text-xs text-slate-600 mt-0.5">
-              Gunakan Google Spreadsheet Anda langsung sebagai database operasional dari pembuatan PO, Jadwal, Pos Security, Timbang Masuk/Keluar, Bongkar, hingga Uji Lab QC-PA.
+              Gunakan Google Spreadsheet Anda langsung sebagai database operasional dari pembuatan PO, Jadwal, Pos Security, Timbang Masuk/Keluar, Bongkar, Uji Lab QC-PA, hingga Pengeluaran &amp; Rekap Boiler FBC 1/2.
             </p>
           </div>
 
@@ -250,7 +260,7 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
           }`}
         >
           <FileSpreadsheet className="w-3.5 h-3.5" />
-          <span>Struktur 4 Tab &amp; Kolom</span>
+          <span>Struktur 6 Tab &amp; Kolom</span>
         </button>
         <button
           type="button"
@@ -373,7 +383,7 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
                 </h3>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Membuat file Google Spreadsheet baru di Google Drive Anda lengkap dengan 4 tab terstruktur (<strong>DATA_PURCHASE_ORDER</strong>, <strong>JADWAL_KEDATANGAN</strong>, <strong>DATA_TRANSAKSI_TIMBANGAN</strong> termasuk QC-PA, dan <strong>AUDIT_LOGS</strong>).
+                Membuat file Google Spreadsheet baru di Google Drive Anda lengkap dengan 6 tab terstruktur (<strong>DATA_PURCHASE_ORDER</strong>, <strong>JADWAL_KEDATANGAN</strong>, <strong>DATA_TRANSAKSI_TIMBANGAN</strong> termasuk QC-PA, <strong>DATA_PENGELUARAN_BATUBARA</strong>, <strong>REKAP_PENGELUARAN_BOILER</strong>, dan <strong>AUDIT_LOGS</strong>).
               </p>
 
               <div className="space-y-3">
@@ -499,7 +509,7 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
               </div>
             )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                 <span className="text-slate-600 text-[11px] block">Purchase Order (PO)</span>
                 <strong className="text-lg font-bold text-slate-900 font-mono-num">
@@ -527,6 +537,13 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
                   {qcCompletedCount}
                 </strong>
                 <span className="text-[10px] text-slate-500 block">Selesai Analisa PA</span>
+              </div>
+              <div className="p-3 bg-amber-50/70 rounded-lg border border-amber-200 col-span-2 sm:col-span-1">
+                <span className="text-amber-900 text-[11px] font-semibold block">Pengeluaran (Output)</span>
+                <strong className="text-lg font-bold text-amber-900 font-mono-num">
+                  {coalOutgoing.length}
+                </strong>
+                <span className="text-[10px] text-amber-800 block">Baris Output &amp; Rekap FBC</span>
               </div>
             </div>
 
@@ -752,10 +769,10 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
           <div>
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <Database className="w-4 h-4 text-emerald-700" />
-              <span>Skema 4 Tab Database Google Sheets (Alur PO s/d QC-PA)</span>
+              <span>Skema 6 Tab Database Google Sheets (PO, QC-PA, &amp; Pengeluaran Boiler)</span>
             </h3>
             <p className="text-xs text-slate-600">
-              Seluruh kolom disimpan terstruktur agar data PO, Jadwal, Security, Timbangan, Bongkar, dan Proximate Analysis (PA) dapat dibaca &amp; ditulis kembali 100% akurat.
+              Seluruh kolom disimpan terstruktur agar data PO, Jadwal, Security, Timbangan, Bongkar, Proximate Analysis (PA), serta Pengeluaran &amp; Rekap Boiler FBC 1/2 dapat dibaca &amp; ditulis kembali 100% akurat.
             </p>
           </div>
 
@@ -806,6 +823,32 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
               <div className="flex flex-wrap gap-1.5 text-[10px] font-mono-num text-slate-800">
                 {AUDIT_HEADERS.map((col) => (
                   <span key={col} className="bg-white border border-slate-300 px-2 py-0.5 rounded">
+                    {col}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-4 bg-amber-50/50 rounded-lg border border-amber-200">
+              <div className="text-xs font-bold text-amber-900 mb-2">
+                Tab 5: {SHEET_TABS.OUTGOING} ({OUTGOING_HEADERS.length} Kolom · Riwayat Pengeluaran Output)
+              </div>
+              <div className="flex flex-wrap gap-1.5 text-[10px] font-mono-num text-slate-800">
+                {OUTGOING_HEADERS.map((col) => (
+                  <span key={col} className="bg-white border border-amber-300 px-2 py-0.5 rounded">
+                    {col}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-4 bg-sky-50/50 rounded-lg border border-sky-200">
+              <div className="text-xs font-bold text-sky-900 mb-2">
+                Tab 6: {SHEET_TABS.OUTGOING_RECAP} ({OUTGOING_RECAP_HEADERS.length} Kolom · Rekap Mingguan/Bulanan/Tahunan Boiler FBC 1 &amp; 2)
+              </div>
+              <div className="flex flex-wrap gap-1.5 text-[10px] font-mono-num text-slate-800">
+                {OUTGOING_RECAP_HEADERS.map((col) => (
+                  <span key={col} className="bg-white border border-sky-300 px-2 py-0.5 rounded">
                     {col}
                   </span>
                 ))}

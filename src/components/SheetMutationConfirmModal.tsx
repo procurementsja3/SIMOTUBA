@@ -10,6 +10,7 @@ export interface SheetMutationConfirmRequest {
     pos: number;
     schedules: number;
     transactions: number;
+    outgoing?: number;
   };
   isDestructive?: boolean;
   confirmLabel?: string;
@@ -122,7 +123,7 @@ export const SheetMutationConfirmModal: React.FC<SheetMutationConfirmModalProps>
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2.5 text-center">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
               <div className="text-base font-bold font-mono-num text-slate-900">
                 {request.affectedCounts.pos}
@@ -140,6 +141,12 @@ export const SheetMutationConfirmModal: React.FC<SheetMutationConfirmModalProps>
                 {request.affectedCounts.transactions}
               </div>
               <div className="text-[11px] font-medium text-slate-600">Baris Timbang &amp; PA</div>
+            </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5">
+              <div className="text-base font-bold font-mono-num text-amber-900">
+                {request.affectedCounts.outgoing ?? 0}
+              </div>
+              <div className="text-[11px] font-medium text-amber-800">Baris Pengeluaran</div>
             </div>
           </div>
         </div>

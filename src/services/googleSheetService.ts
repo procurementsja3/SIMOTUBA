@@ -2,6 +2,7 @@ import {
   PurchaseOrder,
   ArrivalSchedule,
   CoalTransaction,
+  CoalOutgoingRecord,
   AuditLogEntry,
   VisualQC,
   LabQCResults,
@@ -21,6 +22,8 @@ export const GOOGLE_APPS_SCRIPT_TEMPLATE = `/**
  * - Tab Transaksi Timbangan & Workflow Batubara
  * - Tab Purchase Orders (PO)
  * - Tab Jadwal Kedatangan Armada
+ * - Tab Data Pengeluaran Batubara (Output)
+ * - Tab Rekap Pengeluaran Boiler FBC 1 & FBC 2 (Mingguan/Bulanan/Tahunan)
  * 
  * CARA PEMASANGAN DI GOOGLE SPREADSHEET:
  * 1. Buka Google Spreadsheet baru / yang diinginkan.
@@ -67,6 +70,16 @@ function doPost(e) {
     // 3. SINKRONISASI JADWAL KEDATANGAN
     if (payload.schedules && Array.isArray(payload.schedules)) {
       syncSchedules(ss, payload.schedules);
+    }
+
+    // 4. SINKRONISASI PENGELUARAN BATUBARA (OUTPUT)
+    if (payload.coalOutgoing && Array.isArray(payload.coalOutgoing)) {
+      syncCoalOutgoing(ss, payload.coalOutgoing);
+    }
+
+    // 5. SINKRONISASI REKAP PENGELUARAN BOILER FBC 1 & FBC 2
+    if (payload.outgoingRecapRows && Array.isArray(payload.outgoingRecapRows)) {
+      syncCoalOutgoingRecap(ss, payload.outgoingRecapRows);
     }
 
     return ContentService.createTextOutput(JSON.stringify({
@@ -263,6 +276,79 @@ function syncSchedules(ss, schedules) {
   }
 }
 
+function syncCoalOutgoing(ss, outgoingRecords) {
+  var sheetName = "DATA_PENGELUARAN_BATUBARA";
+  var sheet = ss.getSheetByName(sheetName);
+  var headers = [
+    "ID Pengeluaran", "Tanggal", "Jam", "Shift", "Unit Tujuan", "Asal Stockpile",
+    "Qty (Kg)", "Qty (Ton)", "Alat / Armada", "Nama Operator", "Shift Leader",
+    "Keterangan", "Created At", "Updated At"
+  ];
+
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#b45309").setFontColor("#fffbeb").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+  }
+
+  if (outgoingRecords && outgoingRecords.length > 0) {
+    var rows = outgoingRecords.map(function(rec) {
+      var qtyKg = Number(rec.quantityKg) || 0;
+      var qtyTon = rec.quantityTons !== undefined ? Number(rec.quantityTons) : Number((qtyKg / 1000).toFixed(3));
+      return [
+        rec.id || "-",
+        rec.date || "-",
+        rec.time || "-",
+        rec.shift || "SHIFT 1",
+        rec.destinationUnit || "-",
+        rec.sourceStockpile || "Coal Storage",
+        qtyKg,
+        qtyTon,
+        rec.equipmentUsed || "-",
+        rec.operatorName || "-",
+        rec.supervisorName || "-",
+        rec.notes || "-",
+        rec.createdAt || new Date().toISOString(),
+        rec.updatedAt || new Date().toISOString()
+      ];
+    });
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+}
+
+function syncCoalOutgoingRecap(ss, recapRows) {
+  var sheetName = "REKAP_PENGELUARAN_BOILER";
+  var sheet = ss.getSheetByName(sheetName);
+  var headers = [
+    "Jenis Periode", "Periode", "Rentang Tanggal",
+    "Boiler FBC 1 (Kg)", "Boiler FBC 1 (Ton)", "Porsi FBC 1 (%)",
+    "Boiler FBC 2 (Kg)", "Boiler FBC 2 (Ton)", "Porsi FBC 2 (%)",
+    "Unit Lainnya (Kg)", "Total Pengeluaran (Kg)", "Total Pengeluaran (Ton)", "Jumlah Input"
+  ];
+
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#075985").setFontColor("#f0f9ff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+  }
+
+  if (recapRows && recapRows.length > 0) {
+    sheet.getRange(2, 1, recapRows.length, headers.length).setValues(recapRows);
+  }
+}
+
 function formatDateTime(isoString) {
   if (!isoString) return "-";
   try {
@@ -279,6 +365,8 @@ export interface SyncPayload {
   transactions: CoalTransaction[];
   purchaseOrders: PurchaseOrder[];
   schedules: ArrivalSchedule[];
+  coalOutgoing?: CoalOutgoingRecord[];
+  outgoingRecapRows?: (string | number)[][];
 }
 
 export const googleSheetService = {
@@ -330,6 +418,11 @@ export const googleSheetService = {
     }
 
     try {
+      const outgoingList = (payload.coalOutgoing || []).map((rec) => ({
+        ...rec,
+        destinationUnit: normalizeBoilerUnitForSheet(rec.destinationUnit),
+      }));
+
       const normalizedPayload: SyncPayload = {
         purchaseOrders: payload.purchaseOrders.map((po) => ({
           ...po,
@@ -343,6 +436,8 @@ export const googleSheetService = {
           ...tx,
           supplierName: normalizeSupplierName(tx.supplierName),
         })),
+        coalOutgoing: outgoingList,
+        outgoingRecapRows: buildOutgoingBoilerRecapRows(outgoingList),
       };
 
       // Send via fetch with text/plain to avoid CORS preflight rejection by Google Apps Script
@@ -357,7 +452,7 @@ export const googleSheetService = {
 
       return {
         success: true,
-        message: `Berhasil mengirim ${payload.transactions.length} transaksi, ${payload.purchaseOrders.length} PO, dan ${payload.schedules.length} jadwal kedatangan ke Google Sheets!`,
+        message: `Berhasil mengirim ${payload.transactions.length} transaksi, ${payload.purchaseOrders.length} PO, ${payload.schedules.length} jadwal, dan ${outgoingList.length} pengeluaran batubara ke Google Sheets!`,
       };
     } catch (err: any) {
       console.error('Error syncing to Google Sheet:', err);
@@ -378,6 +473,8 @@ export const SHEET_TABS = {
   SCHEDULES: 'JADWAL_KEDATANGAN',
   TRANSACTIONS: 'DATA_TRANSAKSI_TIMBANGAN',
   AUDIT: 'AUDIT_LOGS',
+  OUTGOING: 'DATA_PENGELUARAN_BATUBARA',
+  OUTGOING_RECAP: 'REKAP_PENGELUARAN_BOILER',
 } as const;
 
 export const PO_HEADERS = [
@@ -500,6 +597,186 @@ export const AUDIT_HEADERS = [
   'Ringkasan',
   'Detail',
 ] as const;
+
+export const OUTGOING_HEADERS = [
+  'ID Pengeluaran',
+  'Tanggal',
+  'Jam',
+  'Shift',
+  'Unit Tujuan',
+  'Asal Stockpile',
+  'Qty (Kg)',
+  'Qty (Ton)',
+  'Alat / Armada',
+  'Nama Operator',
+  'Shift Leader',
+  'Keterangan',
+  'Created At',
+  'Updated At',
+] as const;
+
+export const OUTGOING_RECAP_HEADERS = [
+  'Jenis Periode',
+  'Periode',
+  'Rentang Tanggal',
+  'Boiler FBC 1 (Kg)',
+  'Boiler FBC 1 (Ton)',
+  'Porsi FBC 1 (%)',
+  'Boiler FBC 2 (Kg)',
+  'Boiler FBC 2 (Ton)',
+  'Porsi FBC 2 (%)',
+  'Unit Lainnya (Kg)',
+  'Total Pengeluaran (Kg)',
+  'Total Pengeluaran (Ton)',
+  'Jumlah Input',
+] as const;
+
+const INDONESIAN_MONTHS_SHEET = [
+  'Januari',
+  'Februari',
+  'Maret',
+  'April',
+  'Mei',
+  'Juni',
+  'Juli',
+  'Agustus',
+  'September',
+  'Oktober',
+  'November',
+  'Desember',
+];
+
+function normalizeBoilerUnitForSheet(raw?: string): string {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return 'Boiler FBC 1';
+  if (/^boiler\s*(?:fbc\s*)?1$/i.test(trimmed)) return 'Boiler FBC 1';
+  if (/^boiler\s*(?:fbc\s*)?2$/i.test(trimmed)) return 'Boiler FBC 2';
+  return trimmed;
+}
+
+function getIsoWeekForSheet(date: Date) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayNum = d.getDay() || 7;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - (dayNum - 1));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  const thursday = new Date(monday);
+  thursday.setDate(monday.getDate() + 3);
+  const isoYear = thursday.getFullYear();
+  const firstJan = new Date(isoYear, 0, 1);
+  const firstJanDay = firstJan.getDay() || 7;
+  const firstMonday = new Date(firstJan);
+  firstMonday.setDate(firstJan.getDate() - (firstJanDay - 1) + (firstJanDay <= 4 ? 0 : 7));
+  const weekNo = Math.floor((monday.getTime() - firstMonday.getTime()) / (7 * 86400000)) + 1;
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return {
+    key: `${isoYear}-W${pad(weekNo)}`,
+    label: `Minggu ${weekNo} (${isoYear})`,
+    rangeLabel: `${pad(monday.getDate())}/${pad(monday.getMonth() + 1)} – ${pad(sunday.getDate())}/${pad(sunday.getMonth() + 1)}/${sunday.getFullYear()}`,
+  };
+}
+
+export function buildOutgoingBoilerRecapRows(
+  records: CoalOutgoingRecord[]
+): (string | number)[][] {
+  const buildForMode = (mode: 'MINGGUAN' | 'BULANAN' | 'TAHUNAN'): (string | number)[][] => {
+    const map = new Map<
+      string,
+      {
+        key: string;
+        label: string;
+        rangeLabel: string;
+        fbc1Kg: number;
+        fbc2Kg: number;
+        otherKg: number;
+        totalKg: number;
+        count: number;
+      }
+    >();
+
+    records.forEach((rec) => {
+      if (!rec.date) return;
+      const parts = rec.date.split('-').map(Number);
+      if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) return;
+      const d = new Date(parts[0], parts[1] - 1, parts[2]);
+      if (Number.isNaN(d.getTime())) return;
+
+      let key = '';
+      let label = '';
+      let rangeLabel = '';
+      if (mode === 'MINGGUAN') {
+        const wk = getIsoWeekForSheet(d);
+        key = wk.key;
+        label = wk.label;
+        rangeLabel = wk.rangeLabel;
+      } else if (mode === 'BULANAN') {
+        const y = d.getFullYear();
+        const m = d.getMonth();
+        const lastDay = new Date(y, m + 1, 0).getDate();
+        key = `${y}-${String(m + 1).padStart(2, '0')}`;
+        label = `${INDONESIAN_MONTHS_SHEET[m]} ${y}`;
+        rangeLabel = `01/${String(m + 1).padStart(2, '0')} – ${String(lastDay).padStart(2, '0')}/${String(m + 1).padStart(2, '0')}/${y}`;
+      } else {
+        const y = d.getFullYear();
+        key = String(y);
+        label = `Tahun ${y}`;
+        rangeLabel = `Januari – Desember ${y}`;
+      }
+
+      const bucket = map.get(key) || {
+        key,
+        label,
+        rangeLabel,
+        fbc1Kg: 0,
+        fbc2Kg: 0,
+        otherKg: 0,
+        totalKg: 0,
+        count: 0,
+      };
+
+      const kg = Number(rec.quantityKg) || 0;
+      const unit = normalizeBoilerUnitForSheet(rec.destinationUnit);
+      if (unit === 'Boiler FBC 1') bucket.fbc1Kg += kg;
+      else if (unit === 'Boiler FBC 2') bucket.fbc2Kg += kg;
+      else bucket.otherKg += kg;
+
+      bucket.totalKg += kg;
+      bucket.count += 1;
+      map.set(key, bucket);
+    });
+
+    return Array.from(map.values())
+      .sort((a, b) => b.key.localeCompare(a.key))
+      .map((b) => {
+        const fbc1Pct = b.totalKg > 0 ? Number(((b.fbc1Kg / b.totalKg) * 100).toFixed(1)) : 0;
+        const fbc2Pct = b.totalKg > 0 ? Number(((b.fbc2Kg / b.totalKg) * 100).toFixed(1)) : 0;
+        return [
+          mode,
+          b.label,
+          b.rangeLabel,
+          b.fbc1Kg,
+          Number((b.fbc1Kg / 1000).toFixed(3)),
+          `${fbc1Pct}%`,
+          b.fbc2Kg,
+          Number((b.fbc2Kg / 1000).toFixed(3)),
+          `${fbc2Pct}%`,
+          b.otherKg,
+          b.totalKg,
+          Number((b.totalKg / 1000).toFixed(3)),
+          b.count,
+        ];
+      });
+  };
+
+  return [
+    ...buildForMode('MINGGUAN'),
+    ...buildForMode('BULANAN'),
+    ...buildForMode('TAHUNAN'),
+  ];
+}
 
 export class SheetsApiError extends Error {
   status: number;
@@ -928,6 +1205,63 @@ function deserializeAuditRow(row: unknown[], index: number): AuditLogEntry | nul
   };
 }
 
+function serializeOutgoingRow(rec: CoalOutgoingRecord): (string | number)[] {
+  const qtyKg = Number(rec.quantityKg) || 0;
+  const qtyTons =
+    typeof rec.quantityTons === 'number' && Number.isFinite(rec.quantityTons)
+      ? rec.quantityTons
+      : Number((qtyKg / 1000).toFixed(3));
+  return [
+    rec.id,
+    rec.date || '',
+    rec.time || '',
+    rec.shift || 'SHIFT 1',
+    normalizeBoilerUnitForSheet(rec.destinationUnit),
+    rec.sourceStockpile || 'Coal Storage',
+    qtyKg,
+    qtyTons,
+    rec.equipmentUsed || '',
+    rec.operatorName || '',
+    rec.supervisorName || '',
+    rec.notes || '',
+    rec.createdAt || new Date().toISOString(),
+    rec.updatedAt || new Date().toISOString(),
+  ];
+}
+
+function deserializeOutgoingRow(row: unknown[], index: number): CoalOutgoingRecord | null {
+  const id = strCell(row, 0);
+  const date = strCell(row, 1);
+  const qtyKg = numCell(row, 6, 0);
+  if (!id && !date && qtyKg <= 0) return null;
+
+  const rawShift = strCell(row, 3, 'SHIFT 1').toUpperCase();
+  const shift: CoalOutgoingRecord['shift'] =
+    rawShift === 'SHIFT 2' || rawShift === 'SHIFT 3' || rawShift === 'ALL SHIFT'
+      ? rawShift
+      : 'SHIFT 1';
+
+  const qtyTons = numCell(row, 7, Number((qtyKg / 1000).toFixed(3)));
+  const nowIso = new Date().toISOString();
+
+  return {
+    id: id || `OUT-SHEET-${index + 1}`,
+    date: date || nowIso.slice(0, 10),
+    time: strCell(row, 2, '08:00'),
+    shift,
+    destinationUnit: normalizeBoilerUnitForSheet(strCell(row, 4, 'Boiler FBC 1')),
+    sourceStockpile: strCell(row, 5, 'Coal Storage'),
+    quantityKg: Math.round(qtyKg),
+    quantityTons: Number(qtyTons.toFixed(3)),
+    equipmentUsed: strCell(row, 8) || undefined,
+    operatorName: strCell(row, 9, '-'),
+    supervisorName: strCell(row, 10) || undefined,
+    notes: strCell(row, 11) || undefined,
+    createdAt: strCell(row, 12, nowIso),
+    updatedAt: strCell(row, 13, nowIso),
+  };
+}
+
 export interface SheetMetadataInfo {
   spreadsheetId: string;
   spreadsheetTitle: string;
@@ -942,6 +1276,7 @@ export interface FullSheetDatabase {
   schedules: ArrivalSchedule[];
   transactions: CoalTransaction[];
   auditLogs: AuditLogEntry[];
+  coalOutgoing: CoalOutgoingRecord[];
 }
 
 const REQUIRED_TABS: {
@@ -968,6 +1303,16 @@ const REQUIRED_TABS: {
     title: SHEET_TABS.AUDIT,
     headers: AUDIT_HEADERS,
     color: { red: 0.48, green: 0.21, blue: 0.06 },
+  },
+  {
+    title: SHEET_TABS.OUTGOING,
+    headers: OUTGOING_HEADERS,
+    color: { red: 0.71, green: 0.33, blue: 0.04 },
+  },
+  {
+    title: SHEET_TABS.OUTGOING_RECAP,
+    headers: OUTGOING_RECAP_HEADERS,
+    color: { red: 0.03, green: 0.35, blue: 0.52 },
   },
 ];
 
@@ -1201,6 +1546,7 @@ export const sheetsApiService = {
       `'${SHEET_TABS.SCHEDULES}'!A2:${colIndexToLetter(SCHEDULE_HEADERS.length - 1)}`,
       `'${SHEET_TABS.TRANSACTIONS}'!A2:${colIndexToLetter(TRANSACTION_HEADERS.length - 1)}`,
       `'${SHEET_TABS.AUDIT}'!A2:${colIndexToLetter(AUDIT_HEADERS.length - 1)}`,
+      `'${SHEET_TABS.OUTGOING}'!A2:${colIndexToLetter(OUTGOING_HEADERS.length - 1)}`,
     ];
 
     const queryParams = ranges.map((r) => `ranges=${encodeURIComponent(r)}`).join('&');
@@ -1216,6 +1562,7 @@ export const sheetsApiService = {
     const schRows = valueRanges[1]?.values || [];
     const txRows = valueRanges[2]?.values || [];
     const auditRows = valueRanges[3]?.values || [];
+    const outgoingRows = valueRanges[4]?.values || [];
 
     const purchaseOrders = poRows
       .map((r, i) => deserializePoRow(r, i))
@@ -1233,12 +1580,17 @@ export const sheetsApiService = {
       .map((r, i) => deserializeAuditRow(r, i))
       .filter((x): x is AuditLogEntry => Boolean(x));
 
+    const coalOutgoing = outgoingRows
+      .map((r, i) => deserializeOutgoingRow(r, i))
+      .filter((x): x is CoalOutgoingRecord => Boolean(x));
+
     return {
       metadata,
       purchaseOrders,
       schedules,
       transactions,
       auditLogs,
+      coalOutgoing,
     };
   },
 
@@ -1250,6 +1602,7 @@ export const sheetsApiService = {
       schedules: ArrivalSchedule[];
       transactions: CoalTransaction[];
       auditLogs?: AuditLogEntry[];
+      coalOutgoing?: CoalOutgoingRecord[];
     }
   ): Promise<SheetMetadataInfo> {
     const metadata = await this.inspectAndEnsureSpreadsheet(accessToken, rawIdOrUrl);
@@ -1262,6 +1615,12 @@ export const sheetsApiService = {
     ];
     if (payload.auditLogs !== undefined) {
       clearRanges.push(`'${SHEET_TABS.AUDIT}'!A1:${colIndexToLetter(AUDIT_HEADERS.length - 1)}`);
+    }
+    if (payload.coalOutgoing !== undefined) {
+      clearRanges.push(
+        `'${SHEET_TABS.OUTGOING}'!A1:${colIndexToLetter(OUTGOING_HEADERS.length - 1)}`,
+        `'${SHEET_TABS.OUTGOING_RECAP}'!A1:${colIndexToLetter(OUTGOING_RECAP_HEADERS.length - 1)}`
+      );
     }
 
     await sheetsFetch(
@@ -1310,6 +1669,27 @@ export const sheetsApiService = {
         range: `'${SHEET_TABS.AUDIT}'!A1:${colIndexToLetter(AUDIT_HEADERS.length - 1)}${auditValues.length}`,
         values: auditValues,
       });
+    }
+
+    if (payload.coalOutgoing !== undefined) {
+      const outgoingValues: (string | number)[][] = [
+        [...OUTGOING_HEADERS],
+        ...payload.coalOutgoing.map(serializeOutgoingRow),
+      ];
+      const outgoingRecapValues: (string | number)[][] = [
+        [...OUTGOING_RECAP_HEADERS],
+        ...buildOutgoingBoilerRecapRows(payload.coalOutgoing),
+      ];
+      dataToWrite.push(
+        {
+          range: `'${SHEET_TABS.OUTGOING}'!A1:${colIndexToLetter(OUTGOING_HEADERS.length - 1)}${outgoingValues.length}`,
+          values: outgoingValues,
+        },
+        {
+          range: `'${SHEET_TABS.OUTGOING_RECAP}'!A1:${colIndexToLetter(OUTGOING_RECAP_HEADERS.length - 1)}${outgoingRecapValues.length}`,
+          values: outgoingRecapValues,
+        }
+      );
     }
 
     await sheetsFetch(

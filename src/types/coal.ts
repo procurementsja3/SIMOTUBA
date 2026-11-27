@@ -238,7 +238,7 @@ export interface CoalOutgoingRecord {
   id: string;
   date: string;             // YYYY-MM-DD
   time?: string;            // HH:mm
-  shift: 'SHIFT 1' | 'SHIFT 2' | 'SHIFT 3';
+  shift: 'SHIFT 1' | 'SHIFT 2' | 'SHIFT 3' | 'ALL SHIFT';
   destinationUnit: string;  // e.g. Boiler 1, Boiler 2, Produksi
   sourceStockpile: string;  // e.g. Stockpile Utama, Stockpile A
   quantityKg: number;       // Pengeluaran dalam Kg

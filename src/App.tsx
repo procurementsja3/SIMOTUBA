@@ -391,7 +391,8 @@ export default function App() {
     nextSchs: ArrivalSchedule[],
     nextTxs: CoalTransaction[],
     nextLogs: AuditLogEntry[],
-    targetSpreadsheetId = sheetConfig.spreadsheetId || ''
+    targetSpreadsheetId = sheetConfig.spreadsheetId || '',
+    nextOutgoing: CoalOutgoingRecord[] = coalOutgoing
   ): Promise<boolean> => {
     const token = getGoogleAccessToken() || sheetsAccessToken;
     if (!token || !targetSpreadsheetId) {
@@ -408,6 +409,7 @@ export default function App() {
         schedules: nextSchs,
         transactions: nextTxs,
         auditLogs: nextLogs,
+        coalOutgoing: nextOutgoing,
       });
 
       const nowIso = new Date().toISOString();
@@ -462,13 +464,22 @@ export default function App() {
     nextSchs: ArrivalSchedule[];
     nextTxs: CoalTransaction[];
     nextLogs: AuditLogEntry[];
+    nextOutgoing?: CoalOutgoingRecord[];
     isDestructive?: boolean;
     confirmLabel?: string;
     onAfterConfirmed?: () => void;
   }) => {
+    const resolvedOutgoing = params.nextOutgoing ?? coalOutgoing;
+
     if (!isSheetsDbConfigured) {
       if (sheetConfig.autoSyncEnabled && sheetConfig.webhookUrl) {
-        executeWebhookSync(params.nextTxs, params.nextPos, params.nextSchs);
+        executeWebhookSync(
+          params.nextTxs,
+          params.nextPos,
+          params.nextSchs,
+          sheetConfig,
+          resolvedOutgoing
+        );
       }
       return;
     }
@@ -491,6 +502,7 @@ export default function App() {
         pos: params.nextPos.length,
         schedules: params.nextSchs.length,
         transactions: params.nextTxs.length,
+        outgoing: resolvedOutgoing.length,
       },
       isDestructive: params.isDestructive,
       confirmLabel: params.confirmLabel,
@@ -503,7 +515,9 @@ export default function App() {
           params.nextPos,
           params.nextSchs,
           params.nextTxs,
-          params.nextLogs
+          params.nextLogs,
+          sheetConfig.spreadsheetId || '',
+          resolvedOutgoing
         );
         if (ok) {
           params.onAfterConfirmed?.();
@@ -518,7 +532,8 @@ export default function App() {
     currentTxs = transactions,
     currentPos = purchaseOrders,
     currentSchs = schedules,
-    currentCfg = sheetConfig
+    currentCfg = sheetConfig,
+    currentOutgoing = coalOutgoing
   ) => {
     if (!currentCfg.webhookUrl) {
       setActiveTab('googlesheet');
@@ -531,6 +546,7 @@ export default function App() {
       transactions: currentTxs,
       purchaseOrders: currentPos,
       schedules: currentSchs,
+      coalOutgoing: currentOutgoing,
     });
     setIsSyncing(false);
 
@@ -559,17 +575,20 @@ export default function App() {
       promptSheetMutation({
         title: 'Sinkronkan Semua Data ke Google Sheets?',
         description:
-          'Operasi ini akan memperbarui seluruh isi 4 tab di Google Spreadsheet agar sama dengan data terbaru di aplikasi (dari Purchase Order hingga Uji Lab QC-PA).',
+          'Operasi ini akan memperbarui seluruh isi 6 tab di Google Spreadsheet agar sama dengan data terbaru di aplikasi (PO, Jadwal, Timbangan & QC-PA, Pengeluaran Output, Rekap Boiler FBC 1 & 2, serta Audit Log).',
         affectedTabs: [
           SHEET_TABS.PO,
           SHEET_TABS.SCHEDULES,
           SHEET_TABS.TRANSACTIONS,
+          SHEET_TABS.OUTGOING,
+          SHEET_TABS.OUTGOING_RECAP,
           SHEET_TABS.AUDIT,
         ],
         nextPos: purchaseOrders,
         nextSchs: schedules,
         nextTxs: transactions,
         nextLogs: auditLogs,
+        nextOutgoing: coalOutgoing,
         confirmLabel: 'Ya, Perbarui Google Sheet',
       });
       return;
@@ -643,7 +662,10 @@ export default function App() {
       if (sheetConfig.spreadsheetId && sheetConfig.databaseEnabled) {
         // Read-only refresh if local storage has no unsaved data
         const hasLocal =
-          purchaseOrders.length > 0 || schedules.length > 0 || transactions.length > 0;
+          purchaseOrders.length > 0 ||
+          schedules.length > 0 ||
+          transactions.length > 0 ||
+          coalOutgoing.length > 0;
         if (!hasLocal && !hasPendingSheetChanges) {
           try {
             const db = await sheetsApiService.loadDatabaseFromSheet(
@@ -656,6 +678,8 @@ export default function App() {
             storageService.saveSchedules(db.schedules);
             setTransactions(db.transactions);
             storageService.saveTransactions(db.transactions);
+            setCoalOutgoing(db.coalOutgoing);
+            storageService.saveCoalOutgoing(db.coalOutgoing);
             if (db.auditLogs.length > 0) {
               setAuditLogs(db.auditLogs);
               storageService.saveAuditLogs(db.auditLogs);
@@ -701,7 +725,7 @@ export default function App() {
 
       setSheetsFeedback({
         type: 'info',
-        message: `Sedang membuat Google Spreadsheet "${cleanTitle}" beserta 4 tab database...`,
+        message: `Sedang membuat Google Spreadsheet "${cleanTitle}" beserta 6 tab database...`,
       });
 
       const meta = await sheetsApiService.createDatabaseSpreadsheet(token, cleanTitle);
@@ -729,12 +753,18 @@ export default function App() {
       );
       const nextLogs = appendLocalAuditLog(entry);
 
-      if (purchaseOrders.length > 0 || schedules.length > 0 || transactions.length > 0) {
+      if (
+        purchaseOrders.length > 0 ||
+        schedules.length > 0 ||
+        transactions.length > 0 ||
+        coalOutgoing.length > 0
+      ) {
         await sheetsApiService.writeFullDatabaseToSheet(token, meta.spreadsheetId, {
           purchaseOrders,
           schedules,
           transactions,
           auditLogs: nextLogs,
+          coalOutgoing,
         });
       }
 
@@ -802,11 +832,13 @@ export default function App() {
       const sheetHasRows =
         db.purchaseOrders.length > 0 ||
         db.schedules.length > 0 ||
-        db.transactions.length > 0;
+        db.transactions.length > 0 ||
+        db.coalOutgoing.length > 0;
       const appHasRows =
         purchaseOrders.length > 0 ||
         schedules.length > 0 ||
-        transactions.length > 0;
+        transactions.length > 0 ||
+        coalOutgoing.length > 0;
 
       if (sheetHasRows) {
         setPurchaseOrders(db.purchaseOrders);
@@ -815,12 +847,14 @@ export default function App() {
         storageService.saveSchedules(db.schedules);
         setTransactions(db.transactions);
         storageService.saveTransactions(db.transactions);
+        setCoalOutgoing(db.coalOutgoing);
+        storageService.saveCoalOutgoing(db.coalOutgoing);
         if (db.auditLogs.length > 0) {
           setAuditLogs(db.auditLogs);
           storageService.saveAuditLogs(db.auditLogs);
         }
         setHasPendingSheetChanges(false);
-        const okMsg = `Terhubung ke "${db.metadata.spreadsheetTitle}"! Dimuat ${db.purchaseOrders.length} PO, ${db.schedules.length} Jadwal, dan ${db.transactions.length} Transaksi.`;
+        const okMsg = `Terhubung ke "${db.metadata.spreadsheetTitle}"! Dimuat ${db.purchaseOrders.length} PO, ${db.schedules.length} Jadwal, ${db.transactions.length} Transaksi, dan ${db.coalOutgoing.length} Pengeluaran.`;
         setSheetsFeedback({ type: 'success', message: okMsg });
         showToast(okMsg);
       } else if (appHasRows) {
@@ -829,18 +863,21 @@ export default function App() {
         showToast(infoMsg);
         setSheetConfirmRequest({
           title: 'Isi Spreadsheet Kosong dengan Data Aplikasi Saat Ini?',
-          description: `Spreadsheet "${db.metadata.spreadsheetTitle}" sudah terhubung dan memiliki 4 tab terstruktur, namun belum memiliki baris data. Simpan ${purchaseOrders.length} PO, ${schedules.length} Jadwal, dan ${transactions.length} Transaksi ke spreadsheet ini?`,
+          description: `Spreadsheet "${db.metadata.spreadsheetTitle}" sudah terhubung dan memiliki 6 tab terstruktur, namun belum memiliki baris data. Simpan ${purchaseOrders.length} PO, ${schedules.length} Jadwal, ${transactions.length} Transaksi, dan ${coalOutgoing.length} Pengeluaran ke spreadsheet ini?`,
           spreadsheetTitle: db.metadata.spreadsheetTitle,
           affectedTabs: [
             SHEET_TABS.PO,
             SHEET_TABS.SCHEDULES,
             SHEET_TABS.TRANSACTIONS,
+            SHEET_TABS.OUTGOING,
+            SHEET_TABS.OUTGOING_RECAP,
             SHEET_TABS.AUDIT,
           ],
           affectedCounts: {
             pos: purchaseOrders.length,
             schedules: schedules.length,
             transactions: transactions.length,
+            outgoing: coalOutgoing.length,
           },
           confirmLabel: 'Ya, Simpan Data ke Spreadsheet',
           onCancel: () => setHasPendingSheetChanges(true),
@@ -850,7 +887,8 @@ export default function App() {
               schedules,
               transactions,
               auditLogs,
-              db.metadata.spreadsheetId
+              db.metadata.spreadsheetId,
+              coalOutgoing
             );
             setSheetsFeedback({
               type: 'success',
@@ -861,7 +899,7 @@ export default function App() {
         });
       } else {
         setHasPendingSheetChanges(false);
-        const okMsg = `Terhubung ke "${db.metadata.spreadsheetTitle}"! 4 tab database siap menerima data PO s/d QC-PA.`;
+        const okMsg = `Terhubung ke "${db.metadata.spreadsheetTitle}"! 6 tab database siap menerima data PO, QC-PA, dan Pengeluaran Boiler.`;
         setSheetsFeedback({ type: 'success', message: okMsg });
         showToast(okMsg);
       }
@@ -921,6 +959,8 @@ export default function App() {
       storageService.saveSchedules(db.schedules);
       setTransactions(db.transactions);
       storageService.saveTransactions(db.transactions);
+      setCoalOutgoing(db.coalOutgoing);
+      storageService.saveCoalOutgoing(db.coalOutgoing);
       if (db.auditLogs.length > 0) {
         setAuditLogs(db.auditLogs);
         storageService.saveAuditLogs(db.auditLogs);
@@ -935,7 +975,7 @@ export default function App() {
       setSheetConfig(nextCfg);
       storageService.saveSheetConfig(nextCfg);
       setHasPendingSheetChanges(false);
-      const okMsg = `Berhasil memuat ulang dari Google Sheet "${db.metadata.spreadsheetTitle}" (${db.purchaseOrders.length} PO, ${db.transactions.length} Transaksi).`;
+      const okMsg = `Berhasil memuat ulang dari Google Sheet "${db.metadata.spreadsheetTitle}" (${db.purchaseOrders.length} PO, ${db.transactions.length} Transaksi, ${db.coalOutgoing.length} Pengeluaran).`;
       setSheetsFeedback({ type: 'success', message: okMsg });
       showToast(okMsg);
     } catch (err) {
@@ -2218,17 +2258,20 @@ export default function App() {
       promptSheetMutation({
         title: 'Kosongkan Semua Data di Google Sheets Juga?',
         description:
-          'Data lokal telah direset. Apakah Anda juga ingin mengosongkan seluruh baris data (PO, Jadwal, Transaksi & PA) di Google Spreadsheet yang terhubung?',
+          'Data lokal telah direset. Apakah Anda juga ingin mengosongkan seluruh baris data (PO, Jadwal, Transaksi & PA, Pengeluaran, dan Rekap Boiler) di Google Spreadsheet yang terhubung?',
         affectedTabs: [
           SHEET_TABS.PO,
           SHEET_TABS.SCHEDULES,
           SHEET_TABS.TRANSACTIONS,
+          SHEET_TABS.OUTGOING,
+          SHEET_TABS.OUTGOING_RECAP,
           SHEET_TABS.AUDIT,
         ],
         nextPos: [],
         nextSchs: [],
         nextTxs: [],
         nextLogs,
+        nextOutgoing: [],
         isDestructive: true,
         confirmLabel: 'Ya, Kosongkan Google Sheet',
       });
@@ -2290,17 +2333,18 @@ export default function App() {
       storageService.markLocalUpserts('schedule', nextSchs.map((s) => s.id));
       storageService.markLocalUpserts('transaction', nextTxs.map((t) => t.id));
 
+      const nextOutgoing = storageService.getCoalOutgoing();
       setPurchaseOrders(nextPos);
       setSchedules(nextSchs);
       setTransactions(nextTxs);
-      setCoalOutgoing(storageService.getCoalOutgoing());
+      setCoalOutgoing(nextOutgoing);
       setSheetConfig(nextCfg);
       const nextLogs = appendLocalAuditLog(
         buildAuditEntry(
           'IMPORT_BACKUP_JSON',
           'SYSTEM',
           'BACKUP_RESTORE',
-          `Pulihkan backup JSON lokal (${nextPos.length} PO, ${nextSchs.length} Jadwal, ${nextTxs.length} Transaksi)`
+          `Pulihkan backup JSON lokal (${nextPos.length} PO, ${nextSchs.length} Jadwal, ${nextTxs.length} Transaksi, ${nextOutgoing.length} Pengeluaran)`
         )
       );
 
@@ -2318,17 +2362,20 @@ export default function App() {
 
       promptSheetMutation({
         title: 'Timpa Google Sheets dengan Data Backup JSON?',
-        description: `Backup berisi ${nextPos.length} PO, ${nextSchs.length} Jadwal, dan ${nextTxs.length} Transaksi berhasil dimuat secara lokal. Apakah Anda ingin memperbarui Google Spreadsheet dengan data ini?`,
+        description: `Backup berisi ${nextPos.length} PO, ${nextSchs.length} Jadwal, ${nextTxs.length} Transaksi, dan ${nextOutgoing.length} Pengeluaran berhasil dimuat secara lokal. Apakah Anda ingin memperbarui Google Spreadsheet dengan data ini?`,
         affectedTabs: [
           SHEET_TABS.PO,
           SHEET_TABS.SCHEDULES,
           SHEET_TABS.TRANSACTIONS,
+          SHEET_TABS.OUTGOING,
+          SHEET_TABS.OUTGOING_RECAP,
           SHEET_TABS.AUDIT,
         ],
         nextPos,
         nextSchs,
         nextTxs,
         nextLogs,
+        nextOutgoing,
         isDestructive: true,
         confirmLabel: 'Ya, Perbarui Google Sheet',
       });
@@ -2368,7 +2415,7 @@ export default function App() {
     weighOut: transactions.filter((t) => t.status === 'TIMBANG_KELUAR').length,
   };
 
-  // Handlers Operasional Pengeluaran Batubara Harian
+  // Handlers Operasional Pengeluaran Batubara Harian (terintegrasi sinkronisasi Google Sheets & Rekap Boiler FBC 1/2)
   const handleAddCoalOutgoing = (
     data: Omit<CoalOutgoingRecord, 'id' | 'createdAt' | 'updatedAt'>
   ) => {
@@ -2382,7 +2429,7 @@ export default function App() {
     const next = [newRecord, ...coalOutgoing];
     setCoalOutgoing(next);
     storageService.saveCoalOutgoing(next);
-    appendLocalAuditLog(
+    const nextLogs = appendLocalAuditLog(
       buildAuditEntry(
         'ADD_COAL_OUTGOING',
         'SYSTEM',
@@ -2393,13 +2440,25 @@ export default function App() {
     showToast(
       `Pengeluaran ${newRecord.quantityKg.toLocaleString('id-ID')} Kg ke ${newRecord.destinationUnit} berhasil dicatat.`
     );
+
+    promptSheetMutation({
+      title: 'Simpan Pengeluaran & Rekap Boiler ke Google Sheets?',
+      description: `Catat pengeluaran ${newRecord.quantityKg.toLocaleString('id-ID')} Kg (${newRecord.quantityTons.toFixed(2)} Ton) untuk ${newRecord.destinationUnit} (${newRecord.shift}) dan perbarui rekap Mingguan/Bulanan/Tahunan di Google Spreadsheet.`,
+      affectedTabs: [SHEET_TABS.OUTGOING, SHEET_TABS.OUTGOING_RECAP, SHEET_TABS.AUDIT],
+      nextPos: purchaseOrders,
+      nextSchs: schedules,
+      nextTxs: transactions,
+      nextLogs,
+      nextOutgoing: next,
+      confirmLabel: 'Simpan ke Google Sheet',
+    });
   };
 
   const handleUpdateCoalOutgoing = (updated: CoalOutgoingRecord) => {
     const next = coalOutgoing.map((r) => (r.id === updated.id ? updated : r));
     setCoalOutgoing(next);
     storageService.saveCoalOutgoing(next);
-    appendLocalAuditLog(
+    const nextLogs = appendLocalAuditLog(
       buildAuditEntry(
         'UPDATE_COAL_OUTGOING',
         'SYSTEM',
@@ -2408,6 +2467,18 @@ export default function App() {
       )
     );
     showToast(`Data pengeluaran batubara (${updated.destinationUnit}) berhasil diperbarui.`);
+
+    promptSheetMutation({
+      title: 'Perbarui Data Pengeluaran & Rekap Boiler di Google Sheets?',
+      description: `Perbarui catatan pengeluaran ${updated.quantityKg.toLocaleString('id-ID')} Kg untuk ${updated.destinationUnit} (${updated.shift}) serta hitung ulang rekap Mingguan/Bulanan/Tahunan di Google Spreadsheet.`,
+      affectedTabs: [SHEET_TABS.OUTGOING, SHEET_TABS.OUTGOING_RECAP, SHEET_TABS.AUDIT],
+      nextPos: purchaseOrders,
+      nextSchs: schedules,
+      nextTxs: transactions,
+      nextLogs,
+      nextOutgoing: next,
+      confirmLabel: 'Perbarui Google Sheet',
+    });
   };
 
   const handleDeleteCoalOutgoing = (id: string) => {
@@ -2415,17 +2486,32 @@ export default function App() {
     const next = coalOutgoing.filter((r) => r.id !== id);
     setCoalOutgoing(next);
     storageService.saveCoalOutgoing(next);
-    if (target) {
-      appendLocalAuditLog(
-        buildAuditEntry(
-          'DELETE_COAL_OUTGOING',
-          'SYSTEM',
-          id,
-          `Hapus Pengeluaran Batubara: ${target.quantityKg.toLocaleString('id-ID')} Kg (${target.destinationUnit} · ${target.date})`
+    const nextLogs = target
+      ? appendLocalAuditLog(
+          buildAuditEntry(
+            'DELETE_COAL_OUTGOING',
+            'SYSTEM',
+            id,
+            `Hapus Pengeluaran Batubara: ${target.quantityKg.toLocaleString('id-ID')} Kg (${target.destinationUnit} · ${target.date})`
+          )
         )
-      );
-    }
+      : auditLogs;
     showToast('Data pengeluaran batubara berhasil dihapus.');
+
+    promptSheetMutation({
+      title: 'Hapus Data Pengeluaran dari Google Sheets Juga?',
+      description: target
+        ? `Hapus catatan pengeluaran ${target.quantityKg.toLocaleString('id-ID')} Kg (${target.destinationUnit} · ${target.date}) dan perbarui rekap Boiler FBC 1/2 di Google Spreadsheet.`
+        : 'Perbarui tab pengeluaran dan rekap Boiler FBC 1/2 di Google Spreadsheet setelah penghapusan.',
+      affectedTabs: [SHEET_TABS.OUTGOING, SHEET_TABS.OUTGOING_RECAP, SHEET_TABS.AUDIT],
+      nextPos: purchaseOrders,
+      nextSchs: schedules,
+      nextTxs: transactions,
+      nextLogs,
+      nextOutgoing: next,
+      isDestructive: true,
+      confirmLabel: 'Ya, Perbarui Google Sheet',
+    });
   };
 
   const handleNavigateWithFilter = (tab: ActiveTab, filterId?: string) => {
@@ -2625,6 +2711,7 @@ export default function App() {
               transactions={transactions}
               purchaseOrders={purchaseOrders}
               schedules={schedules}
+              coalOutgoing={coalOutgoing}
               onTriggerSync={() => executeWebhookSync()}
               isSyncing={isSyncing}
               hasSheetsToken={hasSheetsToken}
@@ -2658,7 +2745,7 @@ export default function App() {
         <footer className="border-t border-slate-900 bg-slate-950/80 py-4 text-center text-xs text-slate-500 mt-auto">
           <div className="w-full px-3 sm:px-5 lg:px-6 flex items-center justify-center">
             <div>
-              SIMOTUBA · Sistem Monitoring Operasional Batubara & Jembatan Timbang Real-Time
+              SIMOTUBA - Sistem Monitoring Operasional Batubara
             </div>
           </div>
         </footer>
