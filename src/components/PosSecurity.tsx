@@ -101,6 +101,8 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
     check: PoQuotaCheckResult;
   } | null>(null);
   const [historyScope, setHistoryScope] = useState<'TODAY' | 'ALL'>('ALL');
+  const GATE_OUT_ITEMS_PER_PAGE = 10;
+  const [gateOutPage, setGateOutPage] = useState(1);
   // Gate In registration history scope, pagination (10/page) & per-column search filters
   const GATE_IN_ITEMS_PER_PAGE = 10;
   const [gateInHistoryScope, setGateInHistoryScope] = useState<'TODAY' | 'ALL'>('ALL');
@@ -438,10 +440,136 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
     return true;
   });
 
-  // Schedules ready for Gate In
-  const pendingSchedules = schedules.filter(
-    (s) => s.status === 'ON_WAY' || s.status === 'SCHEDULED' || s.status === 'OVERDUE'
+  // Reset pagination to page 1 when Gate Out history scope or column filters change
+  useEffect(() => {
+    setGateOutPage(1);
+  }, [
+    historyScope,
+    histColDate,
+    histColPlate,
+    histColDriver,
+    histColPoSupplier,
+    histColNetto,
+    histColGateIn,
+    histColGateOut,
+    histColDuration,
+  ]);
+
+  const totalGateOutPages = Math.max(
+    1,
+    Math.ceil(filteredCompletedTrucks.length / GATE_OUT_ITEMS_PER_PAGE)
   );
+  const safeGateOutPage = Math.min(gateOutPage, totalGateOutPages);
+  const gateOutStartIdx = (safeGateOutPage - 1) * GATE_OUT_ITEMS_PER_PAGE;
+  const gateOutEndIdx = Math.min(
+    gateOutStartIdx + GATE_OUT_ITEMS_PER_PAGE,
+    filteredCompletedTrucks.length
+  );
+  const paginatedCompletedTrucks = filteredCompletedTrucks.slice(
+    gateOutStartIdx,
+    gateOutEndIdx
+  );
+
+  const gateOutPageNumbers = useMemo(() => {
+    const pages: (number | 'ellipsis')[] = [];
+    if (totalGateOutPages <= 7) {
+      for (let i = 1; i <= totalGateOutPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (safeGateOutPage > 3) pages.push('ellipsis');
+      const start = Math.max(2, safeGateOutPage - 1);
+      const end = Math.min(totalGateOutPages - 1, safeGateOutPage + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      if (safeGateOutPage < totalGateOutPages - 2) pages.push('ellipsis');
+      pages.push(totalGateOutPages);
+    }
+    return pages;
+  }, [totalGateOutPages, safeGateOutPage]);
+
+  // Tanggal Hari Ini (waktu lokal perangkat, otomatis refresh jika berganti hari)
+  const getLocalTodayKey = (): string => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const [todayDateKey, setTodayDateKey] = useState<string>(() => getLocalTodayKey());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const currentKey = getLocalTodayKey();
+      setTodayDateKey((prev) => (prev === currentKey ? prev : currentKey));
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const extractEtaDateKey = (raw?: string): string => {
+    if (!raw) return '';
+    const trimmed = raw.trim();
+    const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+      return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+    }
+    const idMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (idMatch) {
+      return `${idMatch[3]}-${idMatch[2].padStart(2, '0')}-${idMatch[1].padStart(2, '0')}`;
+    }
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      const y = parsed.getFullYear();
+      const m = String(parsed.getMonth() + 1).padStart(2, '0');
+      const d = String(parsed.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return '';
+  };
+
+  const extractRitOrderNumber = (sch: ArrivalSchedule): number => {
+    const label = getScheduleRitLabel(sch, schedules);
+    const m = label.match(/RIT\s*(?:KE[-\s]*)?(\d+)/i);
+    if (m) return Number(m[1]);
+    return 999;
+  };
+
+  // Schedules ready for Gate In — urutkan kiriman hari ini & terdekat di posisi paling depan (Rit 1, Rit 2, dst.)
+  const pendingSchedules = schedules
+    .filter(
+      (s) => s.status === 'ON_WAY' || s.status === 'SCHEDULED' || s.status === 'OVERDUE'
+    )
+    .sort((a, b) => {
+      const etaA = extractEtaDateKey(a.etaDateTime);
+      const etaB = extractEtaDateKey(b.etaDateTime);
+
+      // Tier 0: Hari ini (paling depan), Tier 1: Terdekat berikutnya (ascending), Tier 2: Lewat jadwal (terbaru dulu)
+      const tierOf = (etaKey: string) => {
+        if (!etaKey) return 3;
+        if (etaKey === todayDateKey) return 0;
+        if (etaKey > todayDateKey) return 1;
+        return 2;
+      };
+
+      const tierA = tierOf(etaA);
+      const tierB = tierOf(etaB);
+      if (tierA !== tierB) return tierA - tierB;
+
+      if (etaA !== etaB) {
+        // Untuk yang akan datang (tier 1): tanggal terdekat dulu (ascending)
+        // Untuk lewat jadwal (tier 2): tanggal paling dekat dengan hari ini dulu (descending)
+        return tierA === 2 ? etaB.localeCompare(etaA) : etaA.localeCompare(etaB);
+      }
+
+      // Di tanggal yang sama: urutkan berdasarkan nomor Rit (Rit 1, Rit 2, Rit 3...)
+      const ritA = extractRitOrderNumber(a);
+      const ritB = extractRitOrderNumber(b);
+      if (ritA !== ritB) return ritA - ritB;
+
+      // Tie-breaker konsisten berdasarkan No. PO lalu ID
+      const poCmp = (a.poNumber || '').localeCompare(b.poNumber || '');
+      if (poCmp !== 0) return poCmp;
+      return a.id.localeCompare(b.id);
+    });
 
   // Unique supplier names registered in PO / Schedules for dropdown filter
   const supplierPendingCounts = pendingSchedules.reduce<Record<string, number>>((acc, s) => {
@@ -978,6 +1106,13 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {filteredPendingSchedules.map((sch) => {
                   const ritDisplay = getScheduleRitLabel(sch, schedules);
+                  const schEtaKey = extractEtaDateKey(sch.etaDateTime);
+                  const isTodayEta = schEtaKey === todayDateKey;
+                  const formattedEtaDate = schEtaKey
+                    ? schEtaKey.split('-').reverse().join('/')
+                    : sch.etaDateTime.includes('T')
+                      ? sch.etaDateTime.split('T')[0]
+                      : sch.etaDateTime;
                   const schPo = purchaseOrders.find((p) => p.id === sch.poId);
                   const schQuotaCheck = schPo
                     ? evaluatePoQuotaStatus(schPo, schedules, transactions, {
@@ -990,21 +1125,42 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                   return (
                     <div
                       key={sch.id}
-                      className={`p-3.5 bg-slate-950/80 rounded-lg border transition-colors flex flex-col justify-between ${
+                      className={`p-3.5 rounded-lg border transition-colors flex flex-col justify-between ${
                         schQuotaCheck?.isExcessRit || schQuotaCheck?.isExcessQty
-                          ? 'border-rose-400 ring-1 ring-rose-300'
-                          : 'border-slate-800 hover:border-slate-700'
+                          ? 'bg-slate-950/80 border-rose-400 ring-1 ring-rose-300'
+                          : isTodayEta
+                            ? 'bg-gradient-to-br from-amber-50 via-amber-100/80 to-amber-50 border-amber-400 ring-1 ring-amber-300/80 shadow-xs'
+                            : 'bg-slate-950/80 border-slate-800 hover:border-slate-700'
                       }`}
                     >
                       <div className="space-y-1 mb-3">
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono text-xs font-bold text-amber-400">{sch.poNumber}</span>
-                          <span className="text-[10px] font-mono bg-slate-900 px-1.5 py-0.5 rounded text-slate-400 border border-slate-800">{sch.id}</span>
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-mono text-xs font-bold text-amber-400">{sch.poNumber}</span>
+                            {isTodayEta && (
+                              <span className="px-1.5 py-0.5 rounded text-[9.5px] font-black uppercase tracking-wider bg-amber-500 text-slate-950 whitespace-nowrap">
+                                Hari Ini
+                              </span>
+                            )}
+                          </div>
+                          <span
+                            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border truncate ${
+                              isTodayEta
+                                ? 'bg-white/90 text-amber-950 border-amber-400/90 font-semibold'
+                                : 'bg-slate-900 text-slate-400 border-slate-800'
+                            }`}
+                          >
+                            {sch.id}
+                          </span>
                         </div>
                         <div className="text-xs font-semibold text-slate-900 truncate">{sch.supplierName}</div>
-                        <div className="text-[11px] text-slate-400 flex items-center gap-1 font-mono-num">
-                          <Calendar className="w-3 h-3 text-amber-500" />
-                          <span>ETA: {sch.etaDateTime.includes('T') ? sch.etaDateTime.split('T')[0] : sch.etaDateTime}</span>
+                        <div
+                          className={`text-[11px] flex items-center gap-1 font-mono-num ${
+                            isTodayEta ? 'text-amber-950 font-black' : 'text-slate-400'
+                          }`}
+                        >
+                          <Calendar className={`w-3 h-3 ${isTodayEta ? 'text-amber-700' : 'text-amber-500'}`} />
+                          <span>ETA: {formattedEtaDate}</span>
                         </div>
                         <div className="text-[11px] text-emerald-400 font-semibold font-mono-num">
                           Estimasi: {Number(sch.estimatedTonnage).toLocaleString('id-ID')} Kg ({sch.estimatedTruckCount || 1} Armada)
@@ -2148,7 +2304,7 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                         </td>
                       </tr>
                     ) : (
-                    filteredCompletedTrucks.map((tx) => {
+                    paginatedCompletedTrucks.map((tx) => {
                       const dur = calculateDuration(tx.gateInTime, tx.gateOutTime);
                       return (
                         <tr key={tx.id} className="hover:bg-slate-800/40 transition-colors">
@@ -2199,6 +2355,85 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                   </tbody>
                 </table>
               </div>
+              )}
+
+              {/* Pagination Bar (10 Data per Halaman) */}
+              {filteredCompletedTrucks.length > 0 && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-200 text-xs">
+                  <div className="text-slate-600 font-mono-num">
+                    Menampilkan{' '}
+                    <strong className="text-slate-900 font-bold">
+                      {gateOutStartIdx + 1}–{gateOutEndIdx}
+                    </strong>{' '}
+                    dari{' '}
+                    <strong className="text-slate-900 font-bold">
+                      {filteredCompletedTrucks.length}
+                    </strong>{' '}
+                    Riwayat Gate Out
+                    <span className="text-slate-400 mx-1.5">·</span>
+                    <span>
+                      Halaman <strong className="text-slate-900 font-bold">{safeGateOutPage}</strong> / {totalGateOutPages}
+                    </span>
+                  </div>
+
+                  {totalGateOutPages > 1 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={safeGateOutPage <= 1}
+                        onClick={() => setGateOutPage((p) => Math.max(1, p - 1))}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                          safeGateOutPage <= 1
+                            ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                            : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 cursor-pointer shadow-2xs'
+                        }`}
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                        <span>Sebelumnya</span>
+                      </button>
+
+                      <div className="flex items-center gap-1">
+                        {gateOutPageNumbers.map((pageItem, idx) =>
+                          pageItem === 'ellipsis' ? (
+                            <span
+                              key={`go-ellipsis-${idx}`}
+                              className="px-1.5 text-xs text-slate-500 select-none"
+                            >
+                              …
+                            </span>
+                          ) : (
+                            <button
+                              key={pageItem}
+                              type="button"
+                              onClick={() => setGateOutPage(pageItem)}
+                              className={`min-w-[32px] h-8 px-2 rounded-lg text-xs font-mono-num font-bold border transition-colors cursor-pointer ${
+                                pageItem === safeGateOutPage
+                                  ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-2xs'
+                                  : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                              }`}
+                            >
+                              {pageItem}
+                            </button>
+                          )
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={safeGateOutPage >= totalGateOutPages}
+                        onClick={() => setGateOutPage((p) => Math.min(totalGateOutPages, p + 1))}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                          safeGateOutPage >= totalGateOutPages
+                            ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                            : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 cursor-pointer shadow-2xs'
+                        }`}
+                      >
+                        <span>Berikutnya</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -2916,7 +3151,7 @@ export const PosSecurity: React.FC<PosSecurityProps> = ({
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-semibold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 cursor-pointer"
                   >
                     <option value="SCHEDULED">Terjadwal (Scheduled)</option>
-                    <option value="ON_WAY">Sedang di Jalan (On Way)</option>
+                    <option value="ON_WAY">On Progress (ON_WAY)</option>
                     <option value="OVERDUE">Lewat Jadwal (Overdue)</option>
                     <option value="CANCELLED">Dibatalkan (Cancelled)</option>
                   </select>

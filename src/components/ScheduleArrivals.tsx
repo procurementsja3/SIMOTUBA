@@ -415,7 +415,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
         };
       case 'ON_WAY':
         return {
-          label: 'Sedang di Jalan',
+          label: 'On Progress',
           badgeStyle: 'text-sky-800 bg-sky-50 border-sky-300 font-semibold',
         };
       default:
@@ -1298,7 +1298,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                 statusFilter === 'ON_WAY' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'
               }`}
             >
-              Sedang di Perjalanan ({schedules.filter((s) => getEffectiveScheduleStatus(s) === 'ON_WAY').length})
+              On Progress ({schedules.filter((s) => getEffectiveScheduleStatus(s) === 'ON_WAY').length})
             </button>
             <button
               type="button"
@@ -1684,7 +1684,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                     className="w-full px-1.5 py-1 text-[11px] font-normal normal-case rounded border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-2xs cursor-pointer"
                   >
                     <option value="">Semua Status</option>
-                    <option value="ON_WAY">Sedang di Jalan</option>
+                    <option value="ON_WAY">On Progress</option>
                     <option value="SCHEDULED">Terjadwal</option>
                     <option value="ARRIVED_GATE">Tiba di Pos Security</option>
                     <option value="TIMBANG_MASUK">Timbang Masuk (Gross)</option>
@@ -2830,7 +2830,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                       onChange={(e) => setEditScheduleData({ ...editScheduleData, status: e.target.value as ArrivalSchedule['status'] })}
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 font-semibold"
                     >
-                      <option value="ON_WAY">Sedang di Jalan (ON_WAY)</option>
+                      <option value="ON_WAY">On Progress (ON_WAY)</option>
                       <option value="SCHEDULED">Terjadwal (SCHEDULED)</option>
                       <option value="ARRIVED_GATE">Tiba di Pos Security (ARRIVED_GATE)</option>
                       <option value="TIMBANG_MASUK">Timbang Masuk / Gross (TIMBANG_MASUK)</option>
