@@ -453,6 +453,64 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
   // Urutan Tanggal ETA: default 'desc' (tanggal ETA paling akhir/terbaru di posisi atas)
   const [etaSortDir, setEtaSortDir] = useState<'desc' | 'asc'>('desc');
 
+  // Tanggal Hari Ini (waktu lokal perangkat, otomatis refresh jika berganti hari)
+  const getLocalTodayKey = (): string => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const [todayDateKey, setTodayDateKey] = useState<string>(() => getLocalTodayKey());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const currentKey = getLocalTodayKey();
+      setTodayDateKey((prev) => (prev === currentKey ? prev : currentKey));
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const extractEtaDateKey = (raw?: string): string => {
+    if (!raw) return '';
+    const trimmed = raw.trim();
+    const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+      return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+    }
+    const idMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (idMatch) {
+      return `${idMatch[3]}-${idMatch[2].padStart(2, '0')}-${idMatch[1].padStart(2, '0')}`;
+    }
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      const y = parsed.getFullYear();
+      const m = String(parsed.getMonth() + 1).padStart(2, '0');
+      const d = String(parsed.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return '';
+  };
+
+  const isScheduleEtaToday = (sch: ArrivalSchedule): boolean => {
+    const effStatus = getEffectiveScheduleStatus(sch);
+    if (effStatus === 'CANCELLED') return false;
+    return extractEtaDateKey(sch.etaDateTime) === todayDateKey;
+  };
+
+  const todayFormattedLabel = (() => {
+    const [y, m, d] = todayDateKey.split('-');
+    return y && m && d ? `${d}/${m}/${y}` : todayDateKey;
+  })();
+
+  const todaySchedules = schedules.filter((sch) => isScheduleEtaToday(sch));
+  const todayTotalKg = todaySchedules.reduce(
+    (sum, s) => sum + (Number(s.estimatedTonnage) || 0),
+    0
+  );
+  const isFilteringTodayEta = colSearchEta.trim() === todayFormattedLabel;
+
   const parseEtaSortValue = (raw?: string): number => {
     if (!raw) return 0;
     const trimmed = raw.trim();
@@ -1293,6 +1351,49 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
           </div>
         </div>
 
+        {/* Marking Otomatis Jadwal Kedatangan Hari Ini */}
+        {todaySchedules.length > 0 && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-amber-100/95 via-amber-50 to-amber-100/80 border border-amber-300 text-xs">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-400/80 flex items-center justify-center shrink-0">
+                <Calendar className="w-4 h-4 text-amber-800" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span className="font-extrabold text-amber-950 uppercase tracking-wide text-[11px]">
+                    Marking Otomatis Kedatangan Hari Ini ({todayFormattedLabel})
+                  </span>
+                  <span className="font-mono-num font-black text-amber-900">
+                    {todaySchedules.length} Jadwal / Rit
+                  </span>
+                  <span aria-hidden="true" className="text-amber-500">·</span>
+                  <span className="font-mono-num font-bold text-emerald-800">
+                    {todayTotalKg.toLocaleString('id-ID')} Kg ({(todayTotalKg / 1000).toFixed(2)} Ton)
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-900/85">
+                  Seluruh baris dengan Tgl ETA <strong>{todayFormattedLabel}</strong> (Rit 1, Rit 2, dst.) otomatis ditandai dengan blocking warna kuning-amber pada tabel.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setColSearchEta(isFilteringTodayEta ? '' : todayFormattedLabel)
+              }
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                isFilteringTodayEta
+                  ? 'bg-slate-700 text-white border-slate-700 hover:bg-slate-800'
+                  : 'bg-amber-500 hover:bg-amber-600 text-slate-950 border-amber-600/30 shadow-2xs'
+              }`}
+            >
+              {isFilteringTodayEta
+                ? 'Tampilkan Semua Tanggal'
+                : `Fokus Hari Ini (${todaySchedules.length})`}
+            </button>
+          </div>
+        )}
+
         {/* Operational Note for Overdue / No-Show Vendor */}
         {schedules.some((s) => isScheduleOverdue(s)) && (
           <div className="flex items-start gap-2.5 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs">
@@ -1317,16 +1418,29 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
             const poTotal = poAllSchedules.length;
             const badge = getScheduleStatusBadge(sch);
             const linkedTx = getLinkedTransaction(sch);
+            const isTodayEta = isScheduleEtaToday(sch);
 
             return (
-              <div key={sch.id} className="bg-white border border-slate-300 rounded-xl p-4 space-y-3 shadow-xs">
+              <div
+                key={sch.id}
+                className={`rounded-xl p-4 space-y-3 shadow-xs border ${
+                  isTodayEta
+                    ? 'bg-gradient-to-br from-amber-50 via-amber-100/75 to-amber-50 border-amber-400 ring-1 ring-amber-300/70'
+                    : 'bg-white border-slate-300'
+                }`}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-mono-num font-bold text-amber-800 text-sm">{sch.poNumber}</span>
                       <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-300">
                         #{poIndex >= 0 ? poIndex + 1 : 1}/{poTotal}
                       </span>
+                      {isTodayEta && (
+                        <span className="px-1.5 py-0.5 rounded text-[9.5px] font-black uppercase tracking-wider bg-amber-500 text-slate-950">
+                          Kedatangan Hari Ini
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs font-bold text-slate-900 mt-0.5">{sch.supplierName}</div>
                     <div className="text-[10px] font-mono text-slate-500">{sch.id}</div>
@@ -1355,9 +1469,10 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                     <span className="font-bold text-slate-200">{sch.estimatedTruckCount || 1} Armada</span>
                   </div>
                   <div className="col-span-2 pt-1 border-t border-slate-900 flex items-center justify-between text-[11px]">
-                    <span className="text-slate-400 flex items-center gap-1 font-sans">
-                      <Calendar className="w-3.5 h-3.5 text-amber-500" />
+                    <span className={`flex items-center gap-1 font-sans ${isTodayEta ? 'text-amber-950 font-black' : 'text-slate-400'}`}>
+                      <Calendar className="w-3.5 h-3.5 text-amber-600" />
                       ETA: {formatDateOnly(sch.etaDateTime)}
+                      {isTodayEta ? ' (Hari Ini)' : ''}
                     </span>
                   </div>
                 </div>
@@ -1656,6 +1771,7 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                 paginatedSchedules.map((sch) => {
                   const badge = getScheduleStatusBadge(sch);
                   const linkedTx = getLinkedTransaction(sch);
+                  const isTodayEta = isScheduleEtaToday(sch);
 
                   // Calculate this schedule's index within its PO
                   const poAllSchedules = schedules.filter((s) => s.poId === sch.poId);
@@ -1663,10 +1779,19 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                   const poTotal = poAllSchedules.length;
 
                   return (
-                    <tr key={sch.id} className="hover:bg-slate-50 transition-colors">
+                    <tr
+                      key={sch.id}
+                      className={`transition-colors ${
+                        isTodayEta ? 'row-eta-today' : 'hover:bg-slate-50'
+                      }`}
+                    >
                       <td className="py-2.5 px-2 max-w-[108px]">
                         <span
-                          className="inline-block max-w-full truncate font-mono-num font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-300 text-[11px]"
+                          className={`inline-block max-w-full truncate font-mono-num font-bold px-1.5 py-0.5 rounded border text-[11px] ${
+                            isTodayEta
+                              ? 'text-amber-950 bg-white/90 border-amber-400'
+                              : 'text-slate-900 bg-slate-100 border-slate-300'
+                          }`}
                           title={sch.id}
                         >
                           {sch.id}
@@ -1677,7 +1802,11 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                         <div className="font-mono-num font-bold text-amber-800 flex items-center gap-1">
                           <span>{sch.poNumber}</span>
                           <span 
-                            className="px-1 py-0.2 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-300"
+                            className={`px-1 py-0.2 rounded text-[10px] font-semibold border ${
+                              isTodayEta
+                                ? 'bg-white/90 text-amber-950 border-amber-400/90'
+                                : 'bg-slate-100 text-slate-700 border-slate-300'
+                            }`}
                             title={`Data ke-${poIndex >= 0 ? poIndex + 1 : 1} dari total ${poTotal} data di PO ini (maksimal ${MAX_SCHEDULES_PER_PO})`}
                           >
                             #{poIndex >= 0 ? poIndex + 1 : 1}/{poTotal}
@@ -1686,10 +1815,22 @@ export const ScheduleArrivals: React.FC<ScheduleArrivalsProps> = ({
                       </td>
 
                       <td className="py-2.5 px-2 font-mono-num whitespace-nowrap">
-                        <div className="text-slate-800 font-semibold flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                          <span>{formatDateOnly(sch.etaDateTime)}</span>
-                        </div>
+                        {isTodayEta ? (
+                          <div className="inline-flex flex-col items-start gap-0.5 px-2 py-1 rounded-md bg-amber-200/85 border border-amber-400/90">
+                            <div className="text-amber-950 font-black flex items-center gap-1 leading-tight">
+                              <Calendar className="w-3.5 h-3.5 text-amber-800 shrink-0" />
+                              <span>{formatDateOnly(sch.etaDateTime)}</span>
+                            </div>
+                            <span className="text-[9px] font-sans font-extrabold uppercase tracking-wider text-amber-900 leading-none">
+                              Hari Ini
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-slate-800 font-semibold flex items-center gap-1">
+                            <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <span>{formatDateOnly(sch.etaDateTime)}</span>
+                          </div>
+                        )}
                       </td>
 
                       <td className="py-2.5 px-2 font-mono-num text-right whitespace-nowrap">
