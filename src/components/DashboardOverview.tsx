@@ -1101,60 +1101,44 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       {/* ========================================================================= */}
       {/* MONITORING OUTSTANDING PO & TOLERANSI (+/- 5%): NETTO AKTUAL VS QTY PO    */}
       {/* ========================================================================= */}
-      <div
-        className={`rounded-2xl overflow-hidden shadow-sm border bg-gradient-to-b from-slate-50/90 via-white to-slate-50/70 ${
-          poToleranceStats.over5Count > 0
-            ? 'border-rose-300/80'
-            : poToleranceStats.under5Count > 0
-              ? 'border-amber-300/80'
-              : 'border-emerald-300/80'
-        }`}
-      >
-        {/* Garis Aksen Tipis Menyatu di Bagian Atas Panel */}
+      <div className="po-coffee-card rounded-2xl overflow-hidden">
+        {/* Garis Aksen Kopi Degradasi di Bagian Atas Panel */}
         <div
-          className={`h-1 w-full bg-gradient-to-r ${
+          className={`h-1.5 w-full bg-gradient-to-r ${
             poToleranceStats.over5Count > 0
-              ? 'from-slate-700 via-rose-500 to-amber-400'
+              ? 'from-[#5c361c] via-[#b45309] to-rose-500'
               : poToleranceStats.under5Count > 0
-                ? 'from-slate-700 via-amber-500 to-emerald-500'
-                : 'from-slate-700 via-emerald-500 to-teal-400'
+                ? 'from-[#5c361c] via-[#9a6234] to-[#cfa072]'
+                : 'from-[#5c361c] via-[#8c5a32] to-emerald-500'
           }`}
         />
 
-        {/* Header Judul Khusus dengan Gradasi Halus Menyatu Background */}
-        <div
-          className={`flex flex-col xl:flex-row xl:items-center justify-between gap-3 px-5 py-4 border-b border-slate-200/80 bg-gradient-to-r ${
-            poToleranceStats.over5Count > 0
-              ? 'from-slate-100/95 via-rose-50/55 to-white'
-              : poToleranceStats.under5Count > 0
-                ? 'from-slate-100/95 via-amber-50/55 to-white'
-                : 'from-slate-100/95 via-emerald-50/55 to-white'
-          }`}
-        >
+        {/* Header Judul Khusus dengan Gradasi Coklat Muda Kopi */}
+        <div className="po-coffee-header flex flex-col xl:flex-row xl:items-center justify-between gap-3 px-5 py-4">
           <div className="flex items-start gap-3">
             <div
               className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 border shadow-2xs ${
                 poToleranceStats.over5Count > 0
-                  ? 'bg-gradient-to-br from-white to-rose-100/80 border-rose-200/90'
+                  ? 'bg-gradient-to-br from-[#fffaf5] to-rose-100/90 border-rose-300'
                   : poToleranceStats.under5Count > 0
-                    ? 'bg-gradient-to-br from-white to-amber-100/80 border-amber-200/90'
-                    : 'bg-gradient-to-br from-white to-emerald-100/80 border-emerald-200/90'
+                    ? 'bg-gradient-to-br from-[#fffaf4] to-[#e6c9ab] border-[#c4966c]'
+                    : 'bg-gradient-to-br from-[#fffaf5] to-emerald-100/90 border-emerald-300'
               }`}
             >
               {poToleranceStats.over5Count > 0 ? (
                 <AlertTriangle className="w-5 h-5 text-rose-600" />
               ) : poToleranceStats.under5Count > 0 ? (
-                <Scale className="w-5 h-5 text-amber-700" />
+                <Scale className="w-5 h-5 text-[#7c4821]" />
               ) : (
-                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                <CheckCircle2 className="w-5 h-5 text-emerald-700" />
               )}
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                <h3 className="text-base font-black text-slate-900 tracking-wide uppercase">
+                <h3 className="text-base font-black text-[#3b2110] tracking-wide uppercase">
                   Monitoring Outstanding PO &amp; Toleransi (±5%)
                 </h3>
-                <span aria-hidden="true" className="text-slate-300 hidden sm:inline">
+                <span aria-hidden="true" className="text-[#b8926e] hidden sm:inline">
                   |
                 </span>
                 {poToleranceStats.over5Count > 0 ? (
@@ -1163,18 +1147,18 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     {poToleranceStats.over5Count} PO Melebihi +5%
                   </span>
                 ) : poToleranceStats.under5Count > 0 ? (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 font-mono-num">
-                    <Clock className="w-3.5 h-3.5 shrink-0 text-amber-700" />
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#78441e] font-mono-num">
+                    <Clock className="w-3.5 h-3.5 shrink-0 text-[#8c5227]" />
                     {poToleranceStats.under5Count} PO Masih Outstanding (&gt; 5%)
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 font-mono-num">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 font-mono-num">
                     <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                     Semua PO Dalam Toleransi (±5%)
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
+              <p className="text-xs text-[#5d3d25] mt-0.5 leading-relaxed">
                 Perbandingan akumulasi penerimaan <strong>Netto timbang aktual</strong> terhadap total <strong>QTY PO keseluruhan</strong> untuk memantau apakah sisa PO masih kurang &gt; 5%, sudah masuk rentang toleransi (±5%), atau melebihi +5%.
               </p>
             </div>
@@ -1183,14 +1167,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           {/* Filter Cepat Status Toleransi & Supplier */}
           {poOutstandingToleranceList.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <div className="inline-flex flex-wrap items-center bg-slate-200/70 border border-slate-300/80 rounded-xl p-1 text-[11px] gap-0.5">
+              <div className="inline-flex flex-wrap items-center bg-[#dfc2a4]/75 border border-[#c69d75] rounded-xl p-1 text-[11px] gap-0.5 shadow-2xs">
                 <button
                   type="button"
                   onClick={() => setToleranceTypeFilter('ALL')}
                   className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer whitespace-nowrap ${
                     toleranceTypeFilter === 'ALL'
-                      ? 'bg-white text-slate-900 shadow-xs ring-1 ring-slate-300/90'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                      ? 'bg-[#fffcf8] text-[#3b2110] shadow-xs ring-1 ring-[#c2976d]'
+                      : 'text-[#5b3b23] hover:text-[#3b2110] hover:bg-[#fffaf4]/70'
                   }`}
                 >
                   Semua ({poOutstandingToleranceList.length})
@@ -1201,7 +1185,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer whitespace-nowrap ${
                     toleranceTypeFilter === 'UNDER_5'
                       ? 'bg-amber-500 text-slate-950 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                      : 'text-[#5b3b23] hover:text-[#3b2110] hover:bg-[#fffaf4]/70'
                   }`}
                 >
                   Kurang &gt;5% ({poToleranceStats.under5Count})
@@ -1212,7 +1196,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer whitespace-nowrap ${
                     toleranceTypeFilter === 'WITHIN_5'
                       ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                      : 'text-[#5b3b23] hover:text-[#3b2110] hover:bg-[#fffaf4]/70'
                   }`}
                 >
                   Toleransi ±5% ({poToleranceStats.within5Count})
@@ -1223,7 +1207,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer whitespace-nowrap ${
                     toleranceTypeFilter === 'OVER_5'
                       ? 'bg-rose-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                      : 'text-[#5b3b23] hover:text-[#3b2110] hover:bg-[#fffaf4]/70'
                   }`}
                 >
                   Lebih &gt;+5% ({poToleranceStats.over5Count})
@@ -1232,12 +1216,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
               {toleranceSupplierOptions.length > 1 && (
                 <div className="relative flex items-center">
-                  <Building2 className="w-3.5 h-3.5 text-amber-700 absolute left-2.5 pointer-events-none" />
+                  <Building2 className="w-3.5 h-3.5 text-[#8c5227] absolute left-2.5 pointer-events-none" />
                   <select
                     aria-label="Filter Supplier Outstanding PO"
                     value={toleranceSupplierFilter}
                     onChange={(e) => setToleranceSupplierFilter(e.target.value)}
-                    className="bg-white border border-slate-300 hover:border-amber-400 focus:border-amber-500 rounded-xl pl-8 pr-6 py-1.5 text-[11px] font-semibold text-slate-800 focus:outline-none cursor-pointer max-w-[220px]"
+                    className="bg-[#fffcf8] border border-[#c69d75] hover:border-[#9e683a] focus:border-[#8c5227] rounded-xl pl-8 pr-6 py-1.5 text-[11px] font-semibold text-[#3b2110] focus:outline-none cursor-pointer max-w-[220px]"
                   >
                     <option value="">Semua Supplier ({toleranceSupplierOptions.length})</option>
                     {toleranceSupplierOptions.map((sup) => (
@@ -1254,23 +1238,23 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
         {/* Body Panel: Ringkasan KPI & Tabel Data */}
         <div className="p-5 space-y-4">
-          {/* 4 Kartu Ringkasan Outstanding PO vs Netto Aktual — Warna Lembut Menyatu & Angka Menonjol */}
+          {/* 4 Kartu Ringkasan Outstanding PO vs Netto Aktual — Nuansa Coklat Muda Kopi Degradasi */}
           {poOutstandingToleranceList.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
               {/* KPI 1: Total QTY PO */}
-              <div className="px-4 py-3 rounded-xl bg-gradient-to-br from-white via-slate-50/80 to-slate-100/90 border border-slate-200/90 shadow-2xs flex flex-col justify-between">
+              <div className="po-coffee-kpi-latte px-4 py-3 rounded-xl border shadow-2xs flex flex-col justify-between">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10.5px] font-bold uppercase tracking-wide text-slate-600">
+                  <span className="text-[10.5px] font-bold uppercase tracking-wide text-[#6b4426]">
                     Total QTY PO Keseluruhan
                   </span>
-                  <FileText className="w-4 h-4 text-slate-500 shrink-0" />
+                  <FileText className="w-4 h-4 text-[#8c5a32] shrink-0" />
                 </div>
                 <div className="font-mono-num font-black text-slate-900 text-lg sm:text-xl tracking-tight mt-1.5">
                   {poToleranceStats.totalTargetKg.toLocaleString('id-ID')}{' '}
                   <span className="text-xs font-bold text-slate-500">Kg</span>
                 </div>
-                <div className="text-[11px] font-mono-num text-slate-600 mt-1 pt-1.5 border-t border-slate-200/70">
-                  <span className="font-semibold text-slate-800">
+                <div className="text-[11px] font-mono-num text-[#6b482c] mt-1 pt-1.5 border-t border-[#d8bca0]/80">
+                  <span className="font-semibold text-[#3b2110]">
                     {(poToleranceStats.totalTargetKg / 1000).toLocaleString('id-ID', {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
@@ -1282,7 +1266,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               </div>
 
               {/* KPI 2: Total Netto Timbang Aktual */}
-              <div className="px-4 py-3 rounded-xl bg-gradient-to-br from-white via-emerald-50/45 to-teal-50/80 border border-emerald-200/80 shadow-2xs flex flex-col justify-between">
+              <div className="po-coffee-kpi-netto px-4 py-3 rounded-xl border shadow-2xs flex flex-col justify-between">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[10.5px] font-bold uppercase tracking-wide text-emerald-800">
                     Total Netto Timbang Aktual
@@ -1314,18 +1298,18 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               </div>
 
               {/* KPI 3: Sisa Outstanding PO */}
-              <div className="px-4 py-3 rounded-xl bg-gradient-to-br from-white via-amber-50/50 to-orange-50/75 border border-amber-200/85 shadow-2xs flex flex-col justify-between">
+              <div className="po-coffee-kpi-caramel px-4 py-3 rounded-xl border shadow-2xs flex flex-col justify-between">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10.5px] font-bold uppercase tracking-wide text-amber-900">
+                  <span className="text-[10.5px] font-bold uppercase tracking-wide text-[#73411d]">
                     Sisa Outstanding PO
                   </span>
-                  <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                  <Clock className="w-4 h-4 text-[#9a5c2a] shrink-0" />
                 </div>
-                <div className="font-mono-num font-black text-amber-900 text-lg sm:text-xl tracking-tight mt-1.5">
+                <div className="font-mono-num font-black text-[#4a2710] text-lg sm:text-xl tracking-tight mt-1.5">
                   {poToleranceStats.totalOutstandingKg.toLocaleString('id-ID')}{' '}
-                  <span className="text-xs font-bold text-amber-800/80">Kg</span>
+                  <span className="text-xs font-bold text-[#7d4e29]">Kg</span>
                 </div>
-                <div className="text-[11px] font-mono-num text-amber-900/90 mt-1 pt-1.5 border-t border-amber-200/60 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                <div className="text-[11px] font-mono-num text-[#6d4222] mt-1 pt-1.5 border-t border-[#d4ae86]/75 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                   <span>
                     {(poToleranceStats.totalOutstandingKg / 1000).toLocaleString('id-ID', {
                       minimumFractionDigits: 2,
@@ -1333,61 +1317,61 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     })}{' '}
                     Ton
                   </span>
-                  <span aria-hidden="true" className="text-amber-400">·</span>
+                  <span aria-hidden="true" className="text-[#b8875b]">·</span>
                   <span className="font-extrabold text-sky-900">
                     Est. {Math.ceil(poToleranceStats.totalOutstandingKg / 30000).toLocaleString('id-ID')} Rit
                   </span>
-                  <span className="text-[10px] text-amber-800/80">(@30.000 Kg)</span>
+                  <span className="text-[10px] text-[#7d4e29]">(@30.000 Kg)</span>
                 </div>
               </div>
 
               {/* KPI 4: Status Toleransi PO (±5%) */}
               <div
-                className={`px-4 py-3 rounded-xl border shadow-2xs flex flex-col justify-between bg-gradient-to-br ${
+                className={`px-4 py-3 rounded-xl border shadow-2xs flex flex-col justify-between ${
                   poToleranceStats.over5Count > 0
-                    ? 'from-white via-rose-50/45 to-rose-100/65 border-rose-200/85'
-                    : 'from-white via-slate-50/70 to-sky-50/65 border-slate-200/90'
+                    ? 'bg-gradient-to-br from-[#fffaf5] via-rose-50/70 to-rose-100/80 border-rose-300'
+                    : 'po-coffee-kpi-mocha'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span
                     className={`text-[10.5px] font-bold uppercase tracking-wide ${
-                      poToleranceStats.over5Count > 0 ? 'text-rose-900' : 'text-slate-700'
+                      poToleranceStats.over5Count > 0 ? 'text-rose-900' : 'text-[#6b4426]'
                     }`}
                   >
                     Status Toleransi PO (±5%)
                   </span>
                   <CheckCircle2
                     className={`w-4 h-4 shrink-0 ${
-                      poToleranceStats.over5Count > 0 ? 'text-rose-600' : 'text-sky-600'
+                      poToleranceStats.over5Count > 0 ? 'text-rose-600' : 'text-[#8c5a32]'
                     }`}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2 mt-1.5 font-mono-num">
-                  <div className="rounded-lg bg-emerald-50/80 border border-emerald-200/70 px-2.5 py-1">
+                  <div className="rounded-lg bg-emerald-50/85 border border-emerald-200/80 px-2.5 py-1">
                     <div className="text-base font-black text-emerald-800 leading-tight">
                       {poToleranceStats.within5Count}
                     </div>
                     <div className="text-[10px] font-bold text-emerald-700">PO Aman (±5%)</div>
                   </div>
-                  <div className="rounded-lg bg-rose-50/80 border border-rose-200/70 px-2.5 py-1">
+                  <div className="rounded-lg bg-rose-50/85 border border-rose-200/80 px-2.5 py-1">
                     <div className="text-base font-black text-rose-800 leading-tight">
                       {poToleranceStats.over5Count}
                     </div>
                     <div className="text-[10px] font-bold text-rose-700">PO Lebih (&gt;+5%)</div>
                   </div>
                 </div>
-                <div className="text-[10.5px] text-slate-600 mt-1.5">
-                  Rentang tutup PO ideal: <strong className="text-slate-800">95% – 105%</strong> QTY PO
+                <div className="text-[10.5px] text-[#6b482c] mt-1.5">
+                  Rentang tutup PO ideal: <strong className="text-[#3b2110]">95% – 105%</strong> QTY PO
                 </div>
               </div>
             </div>
           )}
 
           {/* Tabel Monitoring Outstanding PO & Toleransi (+/- 5%) */}
-          <div className="overflow-x-auto rounded-xl border border-slate-200/90 bg-white shadow-2xs">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-100 text-slate-700 border-b-2 border-slate-200 font-bold uppercase text-[10.5px] tracking-wide">
+          <div className="overflow-x-auto rounded-xl border border-[#cfa982] bg-[#fffcf8] shadow-2xs">
+            <table className="po-coffee-table w-full text-left text-xs border-collapse">
+              <thead className="font-bold uppercase text-[10.5px] tracking-wide">
                 <tr>
                   <th className="py-3 px-3.5 whitespace-nowrap">No. PO &amp; Supplier</th>
                   <th className="py-3 px-3.5 text-right whitespace-nowrap">QTY PO Keseluruhan</th>
@@ -1454,11 +1438,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
                     return (
                       <React.Fragment key={po.id}>
-                        <tr className={`${rowBgClass} transition-colors`}>
+                        <tr className={`po-coffee-row ${rowBgClass} transition-colors`}>
                           {/* 1. NO. PO & SUPPLIER */}
                           <td className="py-3.5 px-3.5 align-middle">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-mono text-xs font-black text-amber-900 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/90">
+                              <span className="font-mono text-xs font-black text-[#6b3c19] bg-[#f5e3cf] px-2 py-0.5 rounded-md border border-[#cfa57c]">
                                 {po.poNumber}
                               </span>
                               <span
@@ -1474,12 +1458,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                               </span>
                             </div>
                             <div
-                              className="text-[13px] font-extrabold text-slate-900 mt-1.5 max-w-[240px] truncate"
+                              className="text-[13px] font-extrabold text-[#361e0f] mt-1.5 max-w-[240px] truncate"
                               title={po.supplierName}
                             >
                               {po.supplierName}
                             </div>
-                            <div className="text-[10.5px] text-slate-500 font-mono-num mt-0.5">
+                            <div className="text-[10.5px] text-[#785337] font-mono-num mt-0.5">
                               {receivedRitCount} Rit aktual
                               {scheduledRitCount > 0 ? ` · ${scheduledRitCount} Jadwal` : ''}
                               {lastDeliveryIso ? ` · Terakhir ${lastDeliveryLabel}` : ''}
@@ -1488,8 +1472,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
                           {/* 2. QTY PO KESELURUHAN */}
                           <td className="py-3.5 px-3.5 align-middle text-right font-mono-num whitespace-nowrap">
-                            <div className="inline-block text-right rounded-lg bg-slate-50/90 border border-slate-200/80 px-3 py-2">
-                              <div className="text-[13.5px] font-black text-slate-900 leading-tight">
+                            <div className="inline-block text-right rounded-lg bg-gradient-to-br from-[#fffcf8] to-[#f2e2cf] border border-[#d6b696] px-3 py-2">
+                              <div className="text-[13.5px] font-black text-[#3b2110] leading-tight">
                                 {targetQtyKg.toLocaleString('id-ID')} Kg
                               </div>
                               <div className="text-[11px] font-bold text-slate-600 mt-0.5">
@@ -1703,37 +1687,37 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
                         {/* Rincian Penerimaan Aktual per Rit (Expandable Inline Drawer) */}
                         {isExpanded && (
-                          <tr className="bg-slate-50/95">
-                            <td colSpan={7} className="px-4 py-3.5 border-t border-slate-200/90">
+                          <tr className="po-coffee-drawer">
+                            <td colSpan={7} className="px-4 py-3.5 border-t border-[#d4b392]">
                               <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-                                <div className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
-                                  <History className="w-3.5 h-3.5 text-amber-600" />
+                                <div className="text-[11px] font-bold text-[#4a2b16] flex items-center gap-1.5">
+                                  <History className="w-3.5 h-3.5 text-[#8c5227]" />
                                   <span>
                                     Rincian Penerimaan Netto Aktual — PO{' '}
-                                    <span className="font-mono text-amber-800">{po.poNumber}</span> (
+                                    <span className="font-mono text-[#7c441c]">{po.poNumber}</span> (
                                     {po.supplierName})
                                   </span>
                                 </div>
-                                <div className="text-[10.5px] font-mono-num text-slate-600">
+                                <div className="text-[10.5px] font-mono-num text-[#6b482c]">
                                   Batas Toleransi ±{tolPct}%:{' '}
-                                  <strong className="text-slate-900">
+                                  <strong className="text-[#3b2110]">
                                     {Math.round(minAllowedKg).toLocaleString('id-ID')} Kg
                                   </strong>{' '}
                                   s/d{' '}
-                                  <strong className="text-slate-900">
+                                  <strong className="text-[#3b2110]">
                                     {Math.round(maxAllowedKg).toLocaleString('id-ID')} Kg
                                   </strong>
                                 </div>
                               </div>
 
                               {receipts.length === 0 ? (
-                                <div className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg p-3 text-center">
+                                <div className="text-[11px] text-[#6b482c] bg-[#fffcf8] border border-[#d6b696] rounded-lg p-3 text-center">
                                   Belum ada armada yang selesai Timbang Keluar (Netto Aktual) untuk PO ini.
                                 </div>
                               ) : (
-                                <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                                  <table className="w-full text-left text-[11px] border-collapse">
-                                    <thead className="bg-slate-100 text-slate-600 border-b border-slate-200 font-bold uppercase text-[10px]">
+                                <div className="overflow-x-auto rounded-lg border border-[#d4b392] bg-[#fffcf8]">
+                                  <table className="po-coffee-subtable w-full text-left text-[11px] border-collapse">
+                                    <thead className="font-bold uppercase text-[10px]">
                                       <tr>
                                         <th className="py-2 px-2.5 whitespace-nowrap">Tgl Kedatangan</th>
                                         <th className="py-2 px-2.5 whitespace-nowrap">Rit Ke-</th>
@@ -1845,20 +1829,20 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
         {/* Pagination Kontrol (Maksimal 10 Data PO per Halaman) */}
         {filteredPoToleranceList.length > 0 && (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-3 bg-slate-100/75 border-t border-slate-200/80 text-xs">
-            <div className="text-slate-600 font-mono-num">
+          <div className="po-coffee-footer flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-3 text-xs">
+            <div className="text-[#5c3b22] font-mono-num">
               Menampilkan{' '}
-              <span className="font-bold text-slate-900">
+              <span className="font-bold text-[#3b2110]">
                 {toleranceStartIndex + 1}–{toleranceEndIndex}
               </span>{' '}
               dari{' '}
-              <span className="font-bold text-slate-900">
+              <span className="font-bold text-[#3b2110]">
                 {filteredPoToleranceList.length}
               </span>{' '}
               PO · Halaman{' '}
-              <span className="font-bold text-amber-800">{safeTolerancePage}</span> /{' '}
-              <span className="font-bold text-slate-900">{toleranceTotalPages}</span>{' '}
-              <span className="text-[11px] text-slate-500">
+              <span className="font-bold text-[#7c441c]">{safeTolerancePage}</span> /{' '}
+              <span className="font-bold text-[#3b2110]">{toleranceTotalPages}</span>{' '}
+              <span className="text-[11px] text-[#755033]">
                 (Maks. {TOLERANCE_PAGE_SIZE} data/halaman)
               </span>
             </div>
@@ -1869,7 +1853,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   type="button"
                   onClick={() => setTolerancePage((p) => Math.max(1, p - 1))}
                   disabled={safeTolerancePage <= 1}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#caa47e] bg-[#fffcf8] text-[#4a2b16] font-semibold hover:bg-[#f6e8d8] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
                   <span>Sebelumnya</span>
@@ -1893,7 +1877,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     entry === 'ellipsis' ? (
                       <span
                         key={`tol-ellipsis-${idx}`}
-                        className="px-1.5 text-slate-400 font-mono-num select-none"
+                        className="px-1.5 text-[#8c6546] font-mono-num select-none"
                       >
                         ...
                       </span>
@@ -1904,8 +1888,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                         onClick={() => setTolerancePage(entry)}
                         className={`min-w-[30px] px-2 py-1.5 rounded-lg border font-mono-num font-bold transition-colors cursor-pointer ${
                           entry === safeTolerancePage
-                            ? 'bg-slate-700 text-white border-slate-700 shadow-2xs'
-                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                            ? 'bg-[#7c4821] text-white border-[#6b3c19] shadow-2xs'
+                            : 'bg-[#fffcf8] text-[#4a2b16] border-[#caa47e] hover:bg-[#f6e8d8]'
                         }`}
                       >
                         {entry}
@@ -1917,7 +1901,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   type="button"
                   onClick={() => setTolerancePage((p) => Math.min(toleranceTotalPages, p + 1))}
                   disabled={safeTolerancePage >= toleranceTotalPages}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#caa47e] bg-[#fffcf8] text-[#4a2b16] font-semibold hover:bg-[#f6e8d8] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 >
                   <span>Berikutnya</span>
                   <ChevronRight className="w-3.5 h-3.5" />
@@ -3236,28 +3220,36 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           )}
         </div>
 
-        {/* Right 1 Col: Purchase Order (PO) Quota & Progress */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
-            <div>
-              <h3 className="text-base font-bold text-slate-900 tracking-wide flex items-center gap-2">
-                <Warehouse className="w-5 h-5 text-emerald-600" />
-                <span>Monitoring Outstanding PO Batubara</span>
-              </h3>
-              <p className="text-xs text-slate-600 mt-0.5">Realisasi tonase vs kontrak</p>
+        {/* Right 1 Col: Purchase Order (PO) Quota & Progress — Tema Coklat Muda Kopi Degradasi */}
+        <div className="po-coffee-card rounded-2xl overflow-hidden flex flex-col">
+          {/* Garis Aksen Kopi Degradasi di Bagian Atas Panel */}
+          <div className="h-1.5 w-full bg-gradient-to-r from-[#5c361c] via-[#9a6234] to-[#cfa072]" />
+
+          {/* Header Coklat Muda Kopi Degradasi */}
+          <div className="po-coffee-header flex items-center justify-between gap-2 px-5 py-4">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 bg-gradient-to-br from-[#fffaf4] to-[#e6c9ab] border border-[#c4966c] shadow-2xs">
+                <Warehouse className="w-4.5 h-4.5 text-[#7c4821]" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm sm:text-base font-black text-[#3b2110] tracking-wide leading-tight">
+                  Monitoring Outstanding PO Batubara
+                </h3>
+                <p className="text-xs text-[#6b482c] mt-0.5">Realisasi tonase vs kontrak</p>
+              </div>
             </div>
             <button
               type="button"
               onClick={() => onNavigate('po')}
-              className="text-xs text-amber-400 hover:text-amber-300 font-medium"
+              className="text-[11px] text-[#7c441c] hover:text-[#4a2710] font-bold px-2.5 py-1 rounded-lg bg-[#fffaf4]/85 hover:bg-[#fffaf4] border border-[#cfa982] transition-colors shrink-0 cursor-pointer shadow-2xs"
             >
               Lihat Semua PO
             </button>
           </div>
 
-          <div className="space-y-4">
+          <div className="p-4 sm:p-5 space-y-3.5">
             {purchaseOrders.length === 0 ? (
-              <div className="text-center py-6 text-slate-500 text-xs">
+              <div className="text-center py-6 text-[#6b482c] text-xs bg-[#fffcf8]/80 rounded-xl border border-[#d6b696]">
                 Belum ada Purchase Order (PO) aktif.
               </div>
             ) : (
@@ -3266,29 +3258,45 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 const remaining = Math.max(0, po.targetTonnage - po.receivedTonnage);
 
                 return (
-                  <div key={po.id} className="p-3 bg-slate-950/60 rounded-lg border border-slate-800/80">
-                    <div className="flex justify-between items-start mb-1">
-                      <div>
-                        <div className="text-xs font-bold text-slate-200 font-mono-num">{po.poNumber}</div>
-                        <div className="text-xs text-slate-400 truncate max-w-[190px]">{po.supplierName}</div>
+                  <div
+                    key={po.id}
+                    className="po-coffee-kpi-latte p-3.5 rounded-xl border shadow-2xs transition-all hover:shadow-sm"
+                  >
+                    <div className="flex justify-between items-start gap-2 mb-1.5">
+                      <div className="min-w-0">
+                        <span className="inline-block text-xs font-black text-[#6b3c19] bg-[#f5e3cf] px-2 py-0.5 rounded-md border border-[#cfa57c] font-mono-num">
+                          {po.poNumber}
+                        </span>
+                        <div className="text-xs font-bold text-[#3b2110] truncate max-w-[210px] mt-1" title={po.supplierName}>
+                          {po.supplierName}
+                        </div>
                       </div>
-                      <span className="text-xs font-mono-num font-bold text-amber-400">
+                      <span className="text-sm font-mono-num font-black text-[#7c441c] shrink-0">
                         {pct.toFixed(1)}%
                       </span>
                     </div>
 
                     {/* Progress Bar */}
-                    <div className="w-full bg-slate-800 rounded-full h-2 my-2 overflow-hidden">
-                      <div 
-                        className="bg-amber-500 h-2 rounded-full transition-all duration-500"
+                    <div className="w-full bg-[#e4cab0] rounded-full h-2.5 my-2.5 overflow-hidden border border-[#d3b290]/60">
+                      <div
+                        className="bg-gradient-to-r from-[#b45309] via-[#d97706] to-[#f59e0b] h-full rounded-full transition-all duration-500"
                         style={{ width: `${Math.min(100, pct)}%` }}
                       />
                     </div>
 
-                    <div className="flex justify-between items-center text-[11px] text-slate-400 font-mono-num">
-                      <span>Diterima: <strong className="text-emerald-400">{po.receivedTonnage.toLocaleString('id-ID')} Kg</strong></span>
-                      <span>Qty PO: <strong className="text-slate-300">{po.targetTonnage.toLocaleString('id-ID')} Kg</strong></span>
-                      <span>Sisa: <strong className="text-slate-300">{remaining.toLocaleString('id-ID')} Kg</strong></span>
+                    <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-[11px] text-[#6b482c] font-mono-num pt-2 border-t border-[#dcc0a2]/80">
+                      <span>
+                        Diterima:{' '}
+                        <strong className="text-emerald-800">{po.receivedTonnage.toLocaleString('id-ID')} Kg</strong>
+                      </span>
+                      <span>
+                        Qty PO:{' '}
+                        <strong className="text-[#3b2110]">{po.targetTonnage.toLocaleString('id-ID')} Kg</strong>
+                      </span>
+                      <span>
+                        Sisa:{' '}
+                        <strong className="text-[#7c441c]">{remaining.toLocaleString('id-ID')} Kg</strong>
+                      </span>
                     </div>
                   </div>
                 );

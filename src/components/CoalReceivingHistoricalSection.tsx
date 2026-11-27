@@ -676,22 +676,24 @@ export const CoalReceivingHistoricalSection: React.FC<CoalReceivingHistoricalSec
           </div>
 
           {/* Detailed Historical Data Table */}
-          <div className="border border-slate-300 rounded-xl overflow-hidden shadow-xs bg-white">
-            <div className="bg-slate-50 px-4 py-3 border-b border-slate-300 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-amber-600" />
-                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+          <div className="coal-receiving-blue-card rounded-xl overflow-hidden">
+            <div className="coal-receiving-blue-header px-4 py-3.5 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-lg bg-white/15 border border-white/25 shadow-2xs">
+                  <Layers className="w-4 h-4 text-sky-100" />
+                </div>
+                <h4 className="text-xs font-extrabold uppercase tracking-wider coal-blue-header-text">
                   Tabel Rincian Penerimaan Batubara ({periodType === 'MINGGUAN' ? 'Mingguan' : periodType === 'BULANAN' ? 'Bulanan' : 'Tahunan'})
                 </h4>
               </div>
-              <div className="text-xs text-slate-600 font-medium">
-                Total Record: <strong className="text-slate-900 font-mono-num font-bold">{historicalData.length}</strong> Periode Riil
+              <div className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-white/15 border border-white/30 coal-blue-header-text">
+                Total Record: <strong className="font-mono-num font-extrabold">{historicalData.length}</strong> Periode Riil
               </div>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-800">
-                <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-300 text-[11px] uppercase tracking-wider">
+              <table className="coal-receiving-blue-table w-full text-left text-xs text-slate-900">
+                <thead className="font-bold text-[11px] uppercase tracking-wider">
                   <tr>
                     <th className="py-3 px-3.5">Periode / Rentang Tanggal</th>
                     <th className="py-3 px-3 text-right">Ritase Truk</th>
@@ -705,7 +707,7 @@ export const CoalReceivingHistoricalSection: React.FC<CoalReceivingHistoricalSec
                     <th className="py-3 px-3 text-center">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200">
+                <tbody className="divide-y divide-blue-200/80">
                   {historicalData.map((row) => {
                     const achievement = row.targetTons > 0 ? (row.nettoTons / row.targetTons) * 100 : 0;
                     const isTargetAchieved = achievement >= 95;
@@ -713,8 +715,8 @@ export const CoalReceivingHistoricalSection: React.FC<CoalReceivingHistoricalSec
                     return (
                       <tr 
                         key={row.id} 
-                        className={`hover:bg-slate-50 transition-colors ${
-                          row.isCurrent ? 'bg-amber-50/40 font-medium' : ''
+                        className={`transition-colors ${
+                          row.isCurrent ? 'row-current-period font-medium' : ''
                         }`}
                       >
                         {/* Period Label */}
@@ -722,27 +724,27 @@ export const CoalReceivingHistoricalSection: React.FC<CoalReceivingHistoricalSec
                           <div className="font-bold text-slate-900 flex items-center gap-1.5">
                             <span>{row.label}</span>
                             {row.isCurrent && (
-                              <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                              <span className="badge-blue-vivid px-2 py-0.5 rounded text-[10px] font-bold border">
                                 Berjalan
                               </span>
                             )}
                           </div>
-                          <div className="text-[10px] text-slate-500 font-mono-num">{row.dateRange}</div>
+                          <div className="text-[10px] text-blue-900/75 font-mono-num font-medium">{row.dateRange}</div>
                         </td>
 
                         {/* Truck Count */}
                         <td className="py-3 px-3 text-right font-mono-num font-bold text-slate-900">
                           {row.truckCount.toLocaleString('id-ID')}
-                          <span className="text-[10px] text-slate-500 ml-1 font-sans font-normal">rit</span>
+                          <span className="text-[10px] text-blue-900/70 ml-1 font-sans font-normal">rit</span>
                         </td>
 
                         {/* Netto Tons */}
-                        <td className="py-3 px-3 text-right font-mono-num font-black text-emerald-800">
+                        <td className="py-3 px-3 text-right font-mono-num font-black netto-blue-accent">
                           {row.nettoTons.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
 
                         {/* Target Tons */}
-                        <td className="py-3 px-3 text-right font-mono-num font-semibold text-slate-600">
+                        <td className="py-3 px-3 text-right font-mono-num font-semibold text-slate-700">
                           {row.targetTons.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
 
@@ -797,17 +799,17 @@ export const CoalReceivingHistoricalSection: React.FC<CoalReceivingHistoricalSec
                         </td>
 
                         {/* Supplier */}
-                        <td className="py-3 px-3.5 text-slate-800 font-semibold truncate max-w-[180px]">
+                        <td className="py-3 px-3.5 text-slate-900 font-semibold truncate max-w-[180px]">
                           {row.primarySupplier}
                         </td>
 
                         {/* Status Badge */}
                         <td className="py-3 px-3 text-center">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border shadow-xs ${
+                          <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold tracking-wide border shadow-xs ${
                             isTargetAchieved
                               ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                               : row.isCurrent
-                              ? 'bg-sky-50 text-sky-800 border-sky-300'
+                              ? 'badge-blue-vivid'
                               : 'bg-amber-50 text-amber-800 border-amber-300'
                           }`}>
                             {isTargetAchieved ? 'TERCAPAI' : row.isCurrent ? 'BERJALAN' : 'EVALUASI'}
@@ -819,24 +821,24 @@ export const CoalReceivingHistoricalSection: React.FC<CoalReceivingHistoricalSec
                 </tbody>
 
                 {/* Total Summary Footer Row */}
-                <tfoot className="bg-slate-100 border-t-2 border-slate-300 font-bold text-slate-900 text-[11px]">
+                <tfoot className="font-bold text-[11px]">
                   <tr>
-                    <td className="py-3.5 px-3.5 uppercase tracking-wider text-amber-900">
+                    <td className="py-3.5 px-3.5 uppercase tracking-wider">
                       TOTAL & RATA-RATA ({periodType})
                     </td>
                     <td className="py-3.5 px-3 text-right font-mono-num font-bold">
-                      {summary.totalTrucks.toLocaleString('id-ID')} <span className="text-[10px] text-slate-600 font-sans font-normal">rit</span>
+                      {summary.totalTrucks.toLocaleString('id-ID')} <span className="tfoot-muted-blue text-[10px] font-sans font-normal">rit</span>
                     </td>
-                    <td className="py-3.5 px-3 text-right font-mono-num font-black text-emerald-800">
+                    <td className="py-3.5 px-3 text-right font-mono-num font-black">
                       {summary.totalTons.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ton
                     </td>
-                    <td className="py-3.5 px-3 text-right font-mono-num font-semibold text-slate-600">
+                    <td className="py-3.5 px-3 text-right font-mono-num font-semibold">
                       {summary.totalTarget.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ton
                     </td>
-                    <td className="py-3.5 px-3 text-center font-mono-num font-bold text-amber-900">
+                    <td className="py-3.5 px-3 text-center font-mono-num font-extrabold">
                       {summary.achievementPct.toFixed(1)}%
                     </td>
-                    <td className="py-3.5 px-3 text-right font-mono-num font-bold text-amber-900">
+                    <td className="py-3.5 px-3 text-right font-mono-num font-bold">
                       {summary.avgCalorie !== null ? `${summary.avgCalorie.toLocaleString('id-ID')} kcal` : '-'}
                     </td>
                     <td className="py-3.5 px-3 text-right font-mono-num font-semibold">
@@ -845,8 +847,9 @@ export const CoalReceivingHistoricalSection: React.FC<CoalReceivingHistoricalSec
                     <td className="py-3.5 px-3 text-right font-mono-num font-bold">
                       {summary.avgShrink !== null ? `${summary.avgShrink > 0 ? '+' : ''}${summary.avgShrink.toFixed(2)}%` : '-'}
                     </td>
-                    <td colSpan={2} className="py-3.5 px-3 text-center text-slate-600 font-medium">
-                      Rerata muatan: <strong className="text-slate-950 font-mono-num font-bold">{summary.avgTonsPerTruck.toFixed(2)} Ton/rit</strong>
+                    <td colSpan={2} className="py-3.5 px-3 text-center font-medium">
+                      <span className="tfoot-muted-blue">Rerata muatan:</span>{' '}
+                      <strong className="font-mono-num font-extrabold">{summary.avgTonsPerTruck.toFixed(2)} Ton/rit</strong>
                     </td>
                   </tr>
                 </tfoot>
