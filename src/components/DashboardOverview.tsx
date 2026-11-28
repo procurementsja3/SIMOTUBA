@@ -1939,11 +1939,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                                 onClick={() =>
                                   setExpandedPoToleranceId((prev) => (prev === po.id ? null : po.id))
                                 }
-                                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer ${
-                                  isExpanded
-                                    ? 'bg-slate-700 text-white border-slate-700 shadow-2xs'
-                                    : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-300'
-                                }`}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                                 title="Lihat rincian penerimaan aktual per Rit untuk PO ini"
                               >
                                 <span>Detail ({receivedRitCount})</span>
