@@ -28,6 +28,11 @@ import {
   normalizeTransactionsSupplier,
 } from './utils/supplierUtils';
 import {
+  sanitizePurchaseOrdersForRemovedPo,
+  sanitizeSchedulesForRemovedPo,
+  sanitizeTransactionsForRemovedPo,
+} from './utils/poCleanupUtils';
+import {
   googleSheetService,
   sheetsApiService,
   SheetsApiError,
@@ -264,9 +269,16 @@ export default function App() {
             (a, b) => new Date(b.gateInTime || 0).getTime() - new Date(a.gateInTime || 0).getTime()
           );
 
-        const cloudPoNorm = normalizePurchaseOrdersSupplier(cloud.purchaseOrders);
-        const cloudSchNorm = normalizeSchedulesSupplier(cloud.schedules);
-        const cloudTxNorm = normalizeTransactionsSupplier(cloud.transactions);
+        const cloudTxClean = sanitizeTransactionsForRemovedPo(cloud.transactions);
+        const cloudSchClean = sanitizeSchedulesForRemovedPo(cloud.schedules);
+        const cloudPoClean = sanitizePurchaseOrdersForRemovedPo(
+          cloud.purchaseOrders,
+          cloudTxClean.items
+        );
+
+        const cloudPoNorm = normalizePurchaseOrdersSupplier(cloudPoClean.items);
+        const cloudSchNorm = normalizeSchedulesSupplier(cloudSchClean.items);
+        const cloudTxNorm = normalizeTransactionsSupplier(cloudTxClean.items);
 
         const poMerge = storageService.mergeCloudCollection('po', cloudPoNorm.items, latestLocalPos);
         const schMerge = storageService.mergeCloudCollection('schedule', cloudSchNorm.items, latestLocalSchs);
@@ -293,6 +305,15 @@ export default function App() {
         if (cloudTxNorm.changedIds.length > 0) {
           storageService.markLocalUpserts('transaction', cloudTxNorm.changedIds);
         }
+        if (cloudPoClean.removedIds.length > 0) {
+          storageService.markLocalDeletes('po', cloudPoClean.removedIds);
+        }
+        if (cloudSchClean.removedIds.length > 0) {
+          storageService.markLocalDeletes('schedule', cloudSchClean.removedIds);
+        }
+        if (cloudTxClean.removedIds.length > 0) {
+          storageService.markLocalDeletes('transaction', cloudTxClean.removedIds);
+        }
 
         if (isDisposed) return;
 
@@ -302,7 +323,9 @@ export default function App() {
         unsubscribeFirestore = simotubaFirestoreService.subscribeAll({
           onPurchaseOrders: (nextPos) => {
             const latestLocal = storageService.getPurchaseOrders();
-            const norm = normalizePurchaseOrdersSupplier(nextPos);
+            const latestTxs = storageService.getTransactions();
+            const cleaned = sanitizePurchaseOrdersForRemovedPo(nextPos, latestTxs);
+            const norm = normalizePurchaseOrdersSupplier(cleaned.items);
             const { merged } = storageService.mergeCloudCollection('po', norm.items, latestLocal);
             const sorted = sortPos(merged);
             setPurchaseOrders(sorted);
@@ -310,7 +333,8 @@ export default function App() {
           },
           onSchedules: (nextSchs) => {
             const latestLocal = storageService.getSchedules();
-            const norm = normalizeSchedulesSupplier(nextSchs);
+            const cleaned = sanitizeSchedulesForRemovedPo(nextSchs);
+            const norm = normalizeSchedulesSupplier(cleaned.items);
             const { merged } = storageService.mergeCloudCollection('schedule', norm.items, latestLocal);
             const sorted = sortSchedules(merged);
             setSchedules(sorted);
@@ -318,7 +342,8 @@ export default function App() {
           },
           onTransactions: (nextTxs) => {
             const latestLocal = storageService.getTransactions();
-            const norm = normalizeTransactionsSupplier(nextTxs);
+            const cleaned = sanitizeTransactionsForRemovedPo(nextTxs);
+            const norm = normalizeTransactionsSupplier(cleaned.items);
             const { merged } = storageService.mergeCloudCollection('transaction', norm.items, latestLocal);
             const sorted = sortTransactions(merged);
             setTransactions(sorted);

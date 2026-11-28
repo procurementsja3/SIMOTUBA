@@ -13,6 +13,12 @@ import {
   normalizeSupplierName,
   replaceBorneoNameInText,
 } from '../utils/supplierUtils';
+import {
+  sanitizePurchaseOrdersForRemovedPo,
+  sanitizeSchedulesForRemovedPo,
+  sanitizeTransactionsForRemovedPo,
+  sanitizeAuditLogsForRemovedPo,
+} from '../utils/poCleanupUtils';
 
 export const GOOGLE_APPS_SCRIPT_TEMPLATE = `/**
  * =========================================================================
@@ -423,16 +429,20 @@ export const googleSheetService = {
         destinationUnit: normalizeBoilerUnitForSheet(rec.destinationUnit),
       }));
 
+      const cleanTxs = sanitizeTransactionsForRemovedPo(payload.transactions).items;
+      const cleanSchs = sanitizeSchedulesForRemovedPo(payload.schedules).items;
+      const cleanPos = sanitizePurchaseOrdersForRemovedPo(payload.purchaseOrders, cleanTxs).items;
+
       const normalizedPayload: SyncPayload = {
-        purchaseOrders: payload.purchaseOrders.map((po) => ({
+        purchaseOrders: cleanPos.map((po) => ({
           ...po,
           supplierName: normalizeSupplierName(po.supplierName),
         })),
-        schedules: payload.schedules.map((sch) => ({
+        schedules: cleanSchs.map((sch) => ({
           ...sch,
           supplierName: normalizeSupplierName(sch.supplierName),
         })),
-        transactions: payload.transactions.map((tx) => ({
+        transactions: cleanTxs.map((tx) => ({
           ...tx,
           supplierName: normalizeSupplierName(tx.supplierName),
         })),
@@ -1564,21 +1574,28 @@ export const sheetsApiService = {
     const auditRows = valueRanges[3]?.values || [];
     const outgoingRows = valueRanges[4]?.values || [];
 
-    const purchaseOrders = poRows
-      .map((r, i) => deserializePoRow(r, i))
-      .filter((x): x is PurchaseOrder => Boolean(x));
-
-    const schedules = schRows
-      .map((r, i) => deserializeScheduleRow(r, i))
-      .filter((x): x is ArrivalSchedule => Boolean(x));
-
-    const transactions = txRows
+    const rawTransactions = txRows
       .map((r, i) => deserializeTransactionRow(r, i))
       .filter((x): x is CoalTransaction => Boolean(x));
+    const transactions = sanitizeTransactionsForRemovedPo(rawTransactions).items;
 
-    const auditLogs = auditRows
+    const rawPurchaseOrders = poRows
+      .map((r, i) => deserializePoRow(r, i))
+      .filter((x): x is PurchaseOrder => Boolean(x));
+    const purchaseOrders = sanitizePurchaseOrdersForRemovedPo(
+      rawPurchaseOrders,
+      transactions
+    ).items;
+
+    const rawSchedules = schRows
+      .map((r, i) => deserializeScheduleRow(r, i))
+      .filter((x): x is ArrivalSchedule => Boolean(x));
+    const schedules = sanitizeSchedulesForRemovedPo(rawSchedules).items;
+
+    const rawAuditLogs = auditRows
       .map((r, i) => deserializeAuditRow(r, i))
       .filter((x): x is AuditLogEntry => Boolean(x));
+    const auditLogs = sanitizeAuditLogsForRemovedPo(rawAuditLogs).items;
 
     const coalOutgoing = outgoingRows
       .map((r, i) => deserializeOutgoingRow(r, i))
@@ -1632,17 +1649,21 @@ export const sheetsApiService = {
       }
     );
 
+    const cleanTxs = sanitizeTransactionsForRemovedPo(payload.transactions).items;
+    const cleanSchs = sanitizeSchedulesForRemovedPo(payload.schedules).items;
+    const cleanPos = sanitizePurchaseOrdersForRemovedPo(payload.purchaseOrders, cleanTxs).items;
+
     const poValues: (string | number)[][] = [
       [...PO_HEADERS],
-      ...payload.purchaseOrders.map(serializePoRow),
+      ...cleanPos.map(serializePoRow),
     ];
     const schValues: (string | number)[][] = [
       [...SCHEDULE_HEADERS],
-      ...payload.schedules.map(serializeScheduleRow),
+      ...cleanSchs.map(serializeScheduleRow),
     ];
     const txValues: (string | number)[][] = [
       [...TRANSACTION_HEADERS],
-      ...payload.transactions.map(serializeTransactionRow),
+      ...cleanTxs.map(serializeTransactionRow),
     ];
 
     const dataToWrite: Array<{ range: string; values: (string | number)[][] }> = [
@@ -1661,9 +1682,10 @@ export const sheetsApiService = {
     ];
 
     if (payload.auditLogs !== undefined) {
+      const cleanLogs = sanitizeAuditLogsForRemovedPo(payload.auditLogs).items;
       const auditValues: (string | number)[][] = [
         [...AUDIT_HEADERS],
-        ...payload.auditLogs.slice(0, 500).map(serializeAuditRow),
+        ...cleanLogs.slice(0, 500).map(serializeAuditRow),
       ];
       dataToWrite.push({
         range: `'${SHEET_TABS.AUDIT}'!A1:${colIndexToLetter(AUDIT_HEADERS.length - 1)}${auditValues.length}`,

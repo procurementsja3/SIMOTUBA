@@ -20,11 +20,15 @@ import {
   RotateCcw,
   FilterX,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Clock
 } from 'lucide-react';
 import { PurchaseOrder, ArrivalSchedule, CoalTransaction } from '../types/coal';
 import { MAX_SCHEDULES_PER_PO } from './ScheduleArrivals';
 import { normalizeSupplierName } from '../utils/supplierUtils';
+import { computePoOperationalSummary } from '../utils/poStatusUtils';
 
 export interface SupplierPoInputItem {
   id: string;
@@ -77,6 +81,8 @@ export const PoManagement: React.FC<PoManagementProps> = ({
   const [createError, setCreateError] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
+  const [isActivePoDetailOpen, setIsActivePoDetailOpen] = useState(false);
+  const [activePoDetailTab, setActivePoDetailTab] = useState<'ALL' | 'ACTIVE' | 'ON_PROGRESS'>('ALL');
 
   // Column search filters under each table header
   const [colSearchPo, setColSearchPo] = useState('');
@@ -208,6 +214,32 @@ export const PoManagement: React.FC<PoManagementProps> = ({
     );
   };
 
+  const getPoRitaseSummary = (po: PurchaseOrder) =>
+    computePoOperationalSummary(po, schedules, transactions, MAX_SCHEDULES_PER_PO);
+
+  const allPoOperationalSummaries = purchaseOrders
+    .map((po) => getPoRitaseSummary(po))
+    .sort((a, b) => {
+      const timeA = new Date(a.po.createdAt || a.po.contractDate || 0).getTime();
+      const timeB = new Date(b.po.createdAt || b.po.contractDate || 0).getTime();
+      if (timeA !== timeB) return timeB - timeA;
+      return (b.po.id || '').localeCompare(a.po.id || '');
+    });
+
+  const activeOrOnProgressSummaries = allPoOperationalSummaries.filter(
+    (item) => item.isActiveOrOnProgress
+  );
+  const activePoOnlyCount = allPoOperationalSummaries.filter((item) => item.isActivePo).length;
+  const onProgressPoOnlyCount = allPoOperationalSummaries.filter(
+    (item) => item.hasOnProgressDelivery
+  ).length;
+
+  const displayedDetailSummaries = activeOrOnProgressSummaries.filter((item) => {
+    if (activePoDetailTab === 'ACTIVE') return item.isActivePo;
+    if (activePoDetailTab === 'ON_PROGRESS') return item.hasOnProgressDelivery;
+    return true;
+  });
+
   const filteredPos = purchaseOrders.filter((po) => {
     // 1. Col Search: No PO & Tanggal
     if (colSearchPo) {
@@ -262,10 +294,16 @@ export const PoManagement: React.FC<PoManagementProps> = ({
 
     // 8. Col Search: Jadwal Ritase
     if (colSearchRitase) {
-      const poSchedules = schedules.filter((s) => s.poId === po.id);
-      const countStr = String(poSchedules.length);
-      const q = colSearchRitase.trim();
-      if (!countStr.includes(q)) return false;
+      const { completedRits, totalScheduledRits } = getPoRitaseSummary(po);
+      const ratioStr = `${completedRits}/${totalScheduledRits}`;
+      const q = colSearchRitase.trim().toLowerCase().replace(/\s+/g, '');
+      if (
+        !ratioStr.includes(q) &&
+        !String(completedRits).includes(q) &&
+        !String(totalScheduledRits).includes(q)
+      ) {
+        return false;
+      }
     }
 
     // 9. Col Search: Status
@@ -488,14 +526,62 @@ export const PoManagement: React.FC<PoManagementProps> = ({
 
       {/* KPI Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <div className="bg-white border border-slate-300 rounded-xl p-4 shadow-xs">
-          <span className="text-[11px] text-slate-600 block mb-1 font-medium">Total PO</span>
-          <div className="flex items-baseline justify-between">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setIsActivePoDetailOpen((prev) => !prev)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setIsActivePoDetailOpen((prev) => !prev);
+            }
+          }}
+          title="Klik untuk melihat detail PO yang masih aktif atau memiliki kiriman on progress"
+          className={`bg-white border rounded-xl p-4 shadow-xs transition-all cursor-pointer select-none ${
+            isActivePoDetailOpen
+              ? 'border-amber-500 ring-2 ring-amber-200/80'
+              : 'border-slate-300 hover:border-amber-400'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-1 mb-1">
+            <span className="text-[11px] text-slate-600 font-medium">Total PO</span>
+            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+              <span>{isActivePoDetailOpen ? 'Tutup Detail' : 'Detail PO'}</span>
+              {isActivePoDetailOpen ? (
+                <ChevronUp className="w-3 h-3" />
+              ) : (
+                <ChevronDown className="w-3 h-3" />
+              )}
+            </span>
+          </div>
+          <div className="flex items-baseline justify-between gap-2">
             <span className="text-xl sm:text-2xl font-bold text-slate-900 font-mono-num">
               {filteredPos.length}
             </span>
-            <span className="text-[11px] text-amber-700 font-semibold">Dokumen Aktif</span>
+            <span className="text-[11px] text-amber-700 font-semibold text-right">
+              {activePoOnlyCount} Aktif · {onProgressPoOnlyCount} On Progress
+            </span>
           </div>
+          {activeOrOnProgressSummaries.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-1">
+              {activeOrOnProgressSummaries.slice(0, 3).map((item) => (
+                <span
+                  key={item.po.id}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-50 text-amber-900 border border-amber-200"
+                >
+                  <span>{item.po.poNumber}</span>
+                  {item.hasOnProgressDelivery && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-sky-500" title="Ada kiriman on progress" />
+                  )}
+                </span>
+              ))}
+              {activeOrOnProgressSummaries.length > 3 && (
+                <span className="text-[10px] font-semibold text-slate-500">
+                  +{activeOrOnProgressSummaries.length - 3} lainnya
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="bg-white border border-slate-300 rounded-xl p-4 shadow-xs">
@@ -530,6 +616,167 @@ export const PoManagement: React.FC<PoManagementProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Expandable Detail Panel: PO Aktif & Kiriman On Progress */}
+      {isActivePoDetailOpen && (
+        <div className="bg-white border-2 border-amber-300 rounded-xl p-4 shadow-xs space-y-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-200">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <FileText className="w-4 h-4 text-amber-600" />
+                <span>Detail PO Aktif &amp; Pengiriman On Progress</span>
+              </h3>
+              <p className="text-[11px] text-slate-600 mt-0.5">
+                Menampilkan daftar PO berstatus aktif atau yang masih memiliki jadwal pengiriman / armada dalam proses bongkar.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setActivePoDetailTab('ALL')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
+                  activePoDetailTab === 'ALL'
+                    ? 'bg-amber-500 text-slate-950 border-amber-500'
+                    : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                }`}
+              >
+                Semua ({activeOrOnProgressSummaries.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActivePoDetailTab('ACTIVE')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
+                  activePoDetailTab === 'ACTIVE'
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                }`}
+              >
+                Status Aktif ({activePoOnlyCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActivePoDetailTab('ON_PROGRESS')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
+                  activePoDetailTab === 'ON_PROGRESS'
+                    ? 'bg-sky-600 text-white border-sky-600'
+                    : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                }`}
+              >
+                Kiriman On Progress ({onProgressPoOnlyCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsActivePoDetailOpen(false)}
+                className="p-1 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                title="Tutup panel detail PO"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {displayedDetailSummaries.length === 0 ? (
+            <div className="py-6 text-center text-xs text-slate-500 bg-slate-50 rounded-lg border border-dashed border-slate-300">
+              Tidak ada PO yang sesuai dengan filter ini saat ini.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {displayedDetailSummaries.map((item) => (
+                <div
+                  key={item.po.id}
+                  className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-300 hover:border-amber-400 transition-colors space-y-2.5"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-mono text-sm font-black text-amber-900">
+                          {item.po.poNumber}
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-500">
+                          ({item.po.contractDate})
+                        </span>
+                      </div>
+                      <div className="text-xs font-bold text-slate-900 mt-0.5 truncate" title={item.po.supplierName}>
+                        {item.po.supplierName}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                          item.isActivePo
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                            : 'bg-slate-100 text-slate-600 border-slate-300'
+                        }`}
+                      >
+                        {item.po.status}
+                      </span>
+                      {item.hasOnProgressDelivery && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-sky-50 text-sky-800 border border-sky-300">
+                          <Clock className="w-2.5 h-2.5" />
+                          <span>On Progress</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Progress Tonase */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] font-mono-num">
+                      <span className="text-slate-600">
+                        Realisasi: <strong className="text-emerald-800">{item.po.receivedTonnage.toLocaleString('id-ID')}</strong> / {item.po.targetTonnage.toLocaleString('id-ID')} Kg
+                      </span>
+                      <span className="font-bold text-slate-900">{item.progressPct.toFixed(1)}%</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-amber-500 rounded-full transition-all"
+                        style={{ width: `${Math.min(100, item.progressPct)}%` }}
+                      />
+                    </div>
+                    <div className="text-[10px] text-slate-600 font-mono-num flex items-center justify-between">
+                      <span>Sisa Kuota: <strong className="text-amber-800">{item.remainingKg.toLocaleString('id-ID')} Kg</strong></span>
+                      <span>Tol. ±{item.po.tolerancePercentage}%</span>
+                    </div>
+                  </div>
+
+                  {/* Ritase & Status Kiriman */}
+                  <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-slate-300 font-mono-num font-bold text-slate-800">
+                        <Calendar className="w-3 h-3 text-amber-600" />
+                        <span>{item.completedRits}/{item.totalScheduledRits} Rit</span>
+                      </span>
+                      {item.inProgressTxCount > 0 && (
+                        <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-semibold text-[10px]">
+                          {item.inProgressTxCount} truk proses
+                        </span>
+                      )}
+                      {item.pendingScheduleCount > 0 && (
+                        <span className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-900 border border-sky-300 font-semibold text-[10px]">
+                          {item.pendingScheduleCount} rit dlm perjalanan
+                        </span>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setColSearchPo(item.po.poNumber);
+                        setIsActivePoDetailOpen(false);
+                      }}
+                      className="text-[11px] font-bold text-amber-800 hover:text-amber-950 underline cursor-pointer"
+                    >
+                      Filter di Tabel →
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Section Header: Riwayat Data PO + View Mode Switcher */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
@@ -833,9 +1080,14 @@ export const PoManagement: React.FC<PoManagementProps> = ({
                   paginatedPos.map((po) => {
                     const pct = po.targetTonnage > 0 ? (po.receivedTonnage / po.targetTonnage) * 100 : 0;
                     const remaining = Math.max(0, po.targetTonnage - po.receivedTonnage);
-                    const poSchedules = schedules.filter((s) => s.poId === po.id);
-                    const count = poSchedules.length;
-                    const isFull = count >= MAX_SCHEDULES_PER_PO;
+                    const {
+                      totalScheduledRits,
+                      completedRits,
+                      inProgressTxCount,
+                      remainingRits,
+                      isFull,
+                    } = getPoRitaseSummary(po);
+                    const isAllRitsDone = totalScheduledRits > 0 && completedRits >= totalScheduledRits;
 
                     return (
                       <tr key={po.id} className="hover:bg-slate-50 transition-colors">
@@ -883,14 +1135,30 @@ export const PoManagement: React.FC<PoManagementProps> = ({
                       </td>
 
                       <td className="px-2.5 py-2.5 text-center whitespace-nowrap font-sans">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold ${
-                          isFull 
-                            ? 'bg-rose-50 text-rose-800 border border-rose-300' 
-                            : 'bg-slate-100 text-slate-700 border border-slate-300'
-                        }`}>
-                          <Calendar className="w-3 h-3 text-amber-600" />
-                          <span className="font-mono-num">{count}/{MAX_SCHEDULES_PER_PO} Rit</span>
-                        </span>
+                        <div className="inline-flex flex-col items-center gap-0.5">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold ${
+                              isAllRitsDone
+                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                                : isFull
+                                  ? 'bg-rose-50 text-rose-800 border border-rose-300'
+                                  : 'bg-slate-100 text-slate-800 border border-slate-300'
+                            }`}
+                            title={`PO ${po.poNumber} (${po.supplierName}): ${completedRits} rit sudah terealisasi dari total ${totalScheduledRits} rit jadwal pengiriman (Sisa ${remainingRits} rit${inProgressTxCount > 0 ? `, ${inProgressTxCount} sedang proses` : ''})`}
+                          >
+                            <Calendar className={`w-3 h-3 ${isAllRitsDone ? 'text-emerald-600' : 'text-amber-600'}`} />
+                            <span className="font-mono-num font-bold">{completedRits}/{totalScheduledRits} Rit</span>
+                          </span>
+                          <span className="text-[10px] font-medium text-slate-500 font-mono-num">
+                            {totalScheduledRits === 0
+                              ? 'Belum ada jadwal'
+                              : isAllRitsDone
+                                ? 'Semua rit selesai'
+                                : inProgressTxCount > 0
+                                  ? `${inProgressTxCount} proses · Sisa ${remainingRits} Rit`
+                                  : `Sisa ${remainingRits} Rit`}
+                          </span>
+                        </div>
                       </td>
 
                       <td className="px-2.5 py-2.5 text-center whitespace-nowrap font-sans">
@@ -1123,19 +1391,35 @@ export const PoManagement: React.FC<PoManagementProps> = ({
                 {/* Schedule count and Bottom Action */}
                 <div className="pt-3 border-t border-slate-200 space-y-2">
                   {(() => {
-                    const poSchedules = schedules.filter((s) => s.poId === po.id);
-                    const count = poSchedules.length;
-                    const isFull = count >= MAX_SCHEDULES_PER_PO;
+                    const {
+                      totalScheduledRits,
+                      completedRits,
+                      inProgressTxCount,
+                      remainingRits,
+                      isFull,
+                    } = getPoRitaseSummary(po);
+                    const isAllRitsDone = totalScheduledRits > 0 && completedRits >= totalScheduledRits;
 
                     return (
                       <>
                         <div className="flex items-center justify-between text-[11px]">
-                          <span className="text-slate-400 flex items-center gap-1">
-                            <Calendar className="w-3 h-3 text-amber-400" />
-                            Jadwal Pengiriman:
+                          <span className="text-slate-500 flex items-center gap-1">
+                            <Calendar className={`w-3 h-3 ${isAllRitsDone ? 'text-emerald-600' : 'text-amber-500'}`} />
+                            Realisasi / Jadwal Ritase:
                           </span>
-                          <span className={`font-mono-num font-semibold ${isFull ? 'text-rose-400' : 'text-amber-400'}`}>
-                            {count} / {MAX_SCHEDULES_PER_PO} data {isFull && '(Maks Penuh)'}
+                          <span className={`font-mono-num font-bold ${
+                            isAllRitsDone ? 'text-emerald-700' : isFull ? 'text-rose-600' : 'text-slate-900'
+                          }`}>
+                            {completedRits}/{totalScheduledRits} Rit
+                            {totalScheduledRits > 0 && (
+                              <span className="text-[10px] font-normal text-slate-500 ml-1">
+                                ({isAllRitsDone
+                                  ? 'Selesai'
+                                  : inProgressTxCount > 0
+                                    ? `${inProgressTxCount} proses, sisa ${remainingRits}`
+                                    : `Sisa ${remainingRits}`})
+                              </span>
+                            )}
                           </span>
                         </div>
 

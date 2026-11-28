@@ -160,12 +160,12 @@ export const TransactionTimelineModal: React.FC<TransactionTimelineModalProps> =
               </div>
 
               <div className="text-left sm:text-right text-xs font-mono-num text-slate-600 pt-2 sm:pt-0 border-t border-slate-200 sm:border-t-0 space-y-0.5">
-                <div>Tgl Kedatangan: <strong className="text-slate-950 font-bold">{transaction.gateInTime ? new Date(transaction.gateInTime).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}</strong></div>
-                <div>Masuk Gerbang: <strong className="text-slate-900 font-bold">{checkpoints[0]?.formattedTime} WIB</strong></div>
+                <div>Tgl Kedatangan: <strong className="text-slate-950 font-bold">{checkpoints[0]?.formattedDate !== '-' ? checkpoints[0]?.formattedDate : '-'}</strong></div>
+                <div>Masuk Gerbang: <strong className="text-slate-900 font-bold">{checkpoints[0]?.formattedDate && checkpoints[0]?.formattedDate !== '-' ? `${checkpoints[0].formattedDate} · ` : ''}{checkpoints[0]?.formattedTime} WIB</strong></div>
                 <div>
                   Keluar Gerbang: <strong className="text-slate-900 font-bold">
                     {checkpoints[checkpoints.length - 1]?.formattedTime && checkpoints[checkpoints.length - 1]?.formattedTime !== '-'
-                      ? `${checkpoints[checkpoints.length - 1].formattedTime} WIB`
+                      ? `${checkpoints[checkpoints.length - 1]?.formattedDate && checkpoints[checkpoints.length - 1]?.formattedDate !== '-' ? `${checkpoints[checkpoints.length - 1].formattedDate} · ` : ''}${checkpoints[checkpoints.length - 1].formattedTime} WIB`
                       : 'Masih di dalam terminal'}
                   </strong>
                 </div>
@@ -221,9 +221,9 @@ export const TransactionTimelineModal: React.FC<TransactionTimelineModalProps> =
                           </span>
                         )}
                         <span className="text-xs font-mono font-bold text-slate-800">
-                          {idx === 0 && transaction.gateInTime && (
+                          {step.formattedDate && step.formattedDate !== '-' && (
                             <span className="text-slate-600 font-semibold mr-1.5 font-sans">
-                              {new Date(transaction.gateInTime).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' })} ·
+                              {step.formattedDate} ·
                             </span>
                           )}
                           {step.formattedTime} {step.formattedTime !== '-' ? 'WIB' : ''}

@@ -15,6 +15,7 @@ export interface TimelineCheckpoint {
   id: string;
   stageName: string;
   timestamp?: string;
+  formattedDate: string;
   formattedTime: string;
   actor?: string;
   note?: string;
@@ -236,6 +237,29 @@ export function formatClockTime(ts?: string): string {
 }
 
 /**
+ * Formats a timestamp into a clean DD/MM/YYYY date string in Indonesian locale.
+ */
+export function formatCheckpointDate(ts?: string): string {
+  if (!ts || ts === '-') return '-';
+  const tod = extractTimeOfDay(ts);
+  if (tod?.dateStr) {
+    const match = tod.dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (match) {
+      return `${match[3]}/${match[2]}/${match[1]}`;
+    }
+  }
+  const ms = getNormalizedTimestampMs(ts);
+  if (ms !== null) {
+    return new Date(ms).toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  }
+  return '-';
+}
+
+/**
  * Calculates time duration between two date strings (or between start and now if ongoing).
  */
 export function calculateDuration(startTime?: string, endTime?: string): DurationResult {
@@ -331,6 +355,7 @@ export function getOperationalTimeline(tx: CoalTransaction): {
 
     const directPrevTimestamp = index > 0 ? steps[index - 1]?.timestamp : undefined;
     const hasDirectPrevious = Boolean(index > 0 && s.timestamp && directPrevTimestamp);
+    const formattedDate = formatCheckpointDate(s.timestamp);
     const formattedTime = formatClockTime(s.timestamp);
 
     if (s.timestamp) {
@@ -362,6 +387,7 @@ export function getOperationalTimeline(tx: CoalTransaction): {
       id: s.id,
       stageName: s.stageName,
       timestamp: s.timestamp,
+      formattedDate,
       formattedTime,
       actor: s.actor,
       note: s.note,

@@ -18,6 +18,15 @@ import {
   normalizeTransactionsSupplier,
   normalizeAuditLogsSupplier,
 } from '../utils/supplierUtils';
+import {
+  REMOVED_PO_SCHEDULE_IDS,
+  REMOVED_PO_TRANSACTION_IDS,
+  RESTORED_BORNEO_PO_ID,
+  sanitizePurchaseOrdersForRemovedPo,
+  sanitizeSchedulesForRemovedPo,
+  sanitizeTransactionsForRemovedPo,
+  sanitizeAuditLogsForRemovedPo,
+} from '../utils/poCleanupUtils';
 
 const STORAGE_KEYS = {
   PURCHASE_ORDERS: 'coal_monitor_pos_v2',
@@ -103,6 +112,7 @@ const DEFAULT_SHEET_CONFIG: GoogleSheetConfig = {
 // Purge any dummy data stored in browser storage
 const DUMMY_PURGE_FLAG = 'coal_monitor_dummy_purged_v4';
 const TOLERANCE_5PCT_FLAG = 'coal_monitor_tolerance_5pct_v2';
+const PO_4T260555_PURGE_FLAG = 'coal_monitor_purge_4T260555_v1';
 
 const purgeDummyData = (): void => {
   try {
@@ -195,8 +205,102 @@ const migrateDefaultToleranceToFivePercent = (): void => {
   }
 };
 
+const purgeRemovedPo4T260555 = (): void => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    if (localStorage.getItem(PO_4T260555_PURGE_FLAG) === 'true') return;
+
+    let parsedTxs: CoalTransaction[] = [];
+    const rawTxs = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
+    const removedTxIds = new Set<string>(REMOVED_PO_TRANSACTION_IDS);
+    if (rawTxs) {
+      const txs = JSON.parse(rawTxs);
+      if (Array.isArray(txs)) {
+        const res = sanitizeTransactionsForRemovedPo(txs);
+        res.removedIds.forEach((id) => removedTxIds.add(id));
+        parsedTxs = res.items;
+        if (res.removedIds.length > 0) {
+          localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(parsedTxs));
+        }
+      }
+    }
+
+    const removedSchIds = new Set<string>(REMOVED_PO_SCHEDULE_IDS);
+    const rawSchs = localStorage.getItem(STORAGE_KEYS.SCHEDULES);
+    if (rawSchs) {
+      const schs = JSON.parse(rawSchs);
+      if (Array.isArray(schs)) {
+        const res = sanitizeSchedulesForRemovedPo(schs);
+        res.removedIds.forEach((id) => removedSchIds.add(id));
+        if (res.removedIds.length > 0) {
+          localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(res.items));
+        }
+      }
+    }
+
+    const removedPoIds = new Set<string>();
+    let restoredBorneoPo = false;
+    const rawPos = localStorage.getItem(STORAGE_KEYS.PURCHASE_ORDERS);
+    if (rawPos) {
+      const pos = JSON.parse(rawPos);
+      if (Array.isArray(pos)) {
+        const res = sanitizePurchaseOrdersForRemovedPo(pos, parsedTxs);
+        res.removedIds.forEach((id) => removedPoIds.add(id));
+        restoredBorneoPo = res.restoredBorneoPo;
+        if (res.removedIds.length > 0 || res.restoredBorneoPo) {
+          localStorage.setItem(STORAGE_KEYS.PURCHASE_ORDERS, JSON.stringify(res.items));
+        }
+      }
+    }
+
+    const rawLogs = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
+    if (rawLogs) {
+      const logs = JSON.parse(rawLogs);
+      if (Array.isArray(logs)) {
+        const res = sanitizeAuditLogsForRemovedPo(logs);
+        if (res.changed) {
+          localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(res.items));
+        }
+      }
+    }
+
+    // Clear any stale pending upserts for 4T260555 so this browser never pushes 4T260555 back to Firestore
+    const rawSync = localStorage.getItem(STORAGE_KEYS.SYNC_STATE);
+    if (rawSync) {
+      const syncState: PendingCloudSyncState = {
+        ...createEmptySyncState(),
+        ...JSON.parse(rawSync),
+      };
+      syncState.upsertPoIds = syncState.upsertPoIds.filter(
+        (id) => !removedPoIds.has(id) && !(restoredBorneoPo && id === RESTORED_BORNEO_PO_ID)
+      );
+      syncState.deletePoIds = syncState.deletePoIds.filter(
+        (id) => id !== RESTORED_BORNEO_PO_ID
+      );
+      syncState.upsertScheduleIds = syncState.upsertScheduleIds.filter(
+        (id) => !removedSchIds.has(id)
+      );
+      syncState.knownCloudScheduleIds = syncState.knownCloudScheduleIds.filter(
+        (id) => !removedSchIds.has(id)
+      );
+      syncState.upsertTransactionIds = syncState.upsertTransactionIds.filter(
+        (id) => !removedTxIds.has(id)
+      );
+      syncState.knownCloudTransactionIds = syncState.knownCloudTransactionIds.filter(
+        (id) => !removedTxIds.has(id)
+      );
+      localStorage.setItem(STORAGE_KEYS.SYNC_STATE, JSON.stringify(syncState));
+    }
+
+    localStorage.setItem(PO_4T260555_PURGE_FLAG, 'true');
+  } catch (e) {
+    console.error('Error purging removed PO 4T260555:', e);
+  }
+};
+
 purgeDummyData();
 migrateDefaultToleranceToFivePercent();
+purgeRemovedPo4T260555();
 
 export const storageService = {
   getSyncState(): PendingCloudSyncState {
@@ -377,14 +481,23 @@ export const storageService = {
     try {
       purgeDummyData();
       migrateDefaultToleranceToFivePercent();
+      purgeRemovedPo4T260555();
       const data = localStorage.getItem(STORAGE_KEYS.PURCHASE_ORDERS);
       if (!data) return [];
       const parsed: PurchaseOrder[] = JSON.parse(data);
       if (!Array.isArray(parsed)) return [];
-      const { items, changedIds } = normalizePurchaseOrdersSupplier(parsed);
-      if (changedIds.length > 0) {
+      const rawTxs = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
+      const parsedTxs: CoalTransaction[] = rawTxs ? JSON.parse(rawTxs) : [];
+      const cleaned = sanitizePurchaseOrdersForRemovedPo(
+        parsed,
+        Array.isArray(parsedTxs) ? parsedTxs : []
+      );
+      const { items, changedIds } = normalizePurchaseOrdersSupplier(cleaned.items);
+      if (cleaned.removedIds.length > 0 || cleaned.restoredBorneoPo || changedIds.length > 0) {
         localStorage.setItem(STORAGE_KEYS.PURCHASE_ORDERS, JSON.stringify(items));
-        this.markLocalUpserts('po', changedIds);
+        if (changedIds.length > 0) {
+          this.markLocalUpserts('po', changedIds);
+        }
       }
       return items;
     } catch (e) {
@@ -394,21 +507,26 @@ export const storageService = {
   },
 
   savePurchaseOrders(pos: PurchaseOrder[]): void {
-    const { items } = normalizePurchaseOrdersSupplier(pos);
+    const cleaned = sanitizePurchaseOrdersForRemovedPo(pos);
+    const { items } = normalizePurchaseOrdersSupplier(cleaned.items);
     localStorage.setItem(STORAGE_KEYS.PURCHASE_ORDERS, JSON.stringify(items));
   },
 
   getSchedules(): ArrivalSchedule[] {
     try {
       purgeDummyData();
+      purgeRemovedPo4T260555();
       const data = localStorage.getItem(STORAGE_KEYS.SCHEDULES);
       if (!data) return [];
       const parsed: ArrivalSchedule[] = JSON.parse(data);
       if (!Array.isArray(parsed)) return [];
-      const { items, changedIds } = normalizeSchedulesSupplier(parsed);
-      if (changedIds.length > 0) {
+      const cleaned = sanitizeSchedulesForRemovedPo(parsed);
+      const { items, changedIds } = normalizeSchedulesSupplier(cleaned.items);
+      if (cleaned.removedIds.length > 0 || changedIds.length > 0) {
         localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(items));
-        this.markLocalUpserts('schedule', changedIds);
+        if (changedIds.length > 0) {
+          this.markLocalUpserts('schedule', changedIds);
+        }
       }
       return items;
     } catch (e) {
@@ -418,21 +536,24 @@ export const storageService = {
   },
 
   saveSchedules(schedules: ArrivalSchedule[]): void {
-    const { items } = normalizeSchedulesSupplier(schedules);
+    const cleaned = sanitizeSchedulesForRemovedPo(schedules);
+    const { items } = normalizeSchedulesSupplier(cleaned.items);
     localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(items));
   },
 
   getTransactions(): CoalTransaction[] {
     try {
       purgeDummyData();
+      purgeRemovedPo4T260555();
       const data = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
       if (!data) {
         this.saveTransactions(INITIAL_TRANSACTIONS);
         return INITIAL_TRANSACTIONS;
       }
       const parsed: CoalTransaction[] = JSON.parse(data);
-      let needsResave = false;
-      const migrated = parsed.map((t) => {
+      const cleanedTx = sanitizeTransactionsForRemovedPo(Array.isArray(parsed) ? parsed : []);
+      let needsResave = cleanedTx.removedIds.length > 0;
+      const migrated = cleanedTx.items.map((t) => {
         let current = t;
         if (current.sampleId && current.sampleId.startsWith('SMP-')) {
           needsResave = true;
@@ -477,7 +598,8 @@ export const storageService = {
   },
 
   saveTransactions(transactions: CoalTransaction[]): void {
-    const { items } = normalizeTransactionsSupplier(transactions);
+    const cleaned = sanitizeTransactionsForRemovedPo(transactions);
+    const { items } = normalizeTransactionsSupplier(cleaned.items);
     localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(items));
   },
 
@@ -499,12 +621,14 @@ export const storageService = {
 
   getAuditLogs(): AuditLogEntry[] {
     try {
+      purgeRemovedPo4T260555();
       const data = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
       if (!data) return [];
       const parsed = JSON.parse(data);
       if (!Array.isArray(parsed)) return [];
-      const { items, changed } = normalizeAuditLogsSupplier(parsed);
-      if (changed) {
+      const cleaned = sanitizeAuditLogsForRemovedPo(parsed);
+      const { items, changed } = normalizeAuditLogsSupplier(cleaned.items);
+      if (cleaned.changed || changed) {
         localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(items.slice(0, 500)));
       }
       return items;
@@ -515,7 +639,8 @@ export const storageService = {
 
   saveAuditLogs(logs: AuditLogEntry[]): void {
     try {
-      const { items } = normalizeAuditLogsSupplier(logs);
+      const cleaned = sanitizeAuditLogsForRemovedPo(logs);
+      const { items } = normalizeAuditLogsSupplier(cleaned.items);
       localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(items.slice(0, 500)));
     } catch (e) {
       console.error('Failed saving audit logs:', e);

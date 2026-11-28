@@ -38,6 +38,7 @@ import { formatDisplayTicketNumber } from '../utils/ticketUtils';
 import { TransactionTimelineModal } from './TransactionTimelineModal';
 import { CoalReceivingHistoricalSection } from './CoalReceivingHistoricalSection';
 import { SupplierPerformanceChart } from './SupplierPerformanceChart';
+import { computePoOperationalSummary } from '../utils/poStatusUtils';
 
 interface DashboardOverviewProps {
   purchaseOrders: PurchaseOrder[];
@@ -88,6 +89,37 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const TOLERANCE_PAGE_SIZE = 10;
 
   const [kpiScope, setKpiScope] = useState<'TODAY' | 'ALL'>('ALL');
+  const [isActivePoDetailOpen, setIsActivePoDetailOpen] = useState<boolean>(false);
+  const [activePoFilterMode, setActivePoFilterMode] = useState<'ALL' | 'ACTIVE' | 'ON_PROGRESS'>('ALL');
+
+  const activePoOverview = useMemo(() => {
+    const summaries = purchaseOrders
+      .map((po) => computePoOperationalSummary(po, schedules, transactions))
+      .filter((item) => item.isActiveOrOnProgress)
+      .sort((a, b) => {
+        const timeA = new Date(a.po.createdAt || a.po.contractDate || 0).getTime();
+        const timeB = new Date(b.po.createdAt || b.po.contractDate || 0).getTime();
+        if (timeA !== timeB) return timeB - timeA;
+        return (b.po.id || '').localeCompare(a.po.id || '');
+      });
+
+    const activeCount = summaries.filter((item) => item.isActivePo).length;
+    const onProgressCount = summaries.filter((item) => item.hasOnProgressDelivery).length;
+
+    return {
+      summaries,
+      activeCount,
+      onProgressCount,
+    };
+  }, [purchaseOrders, schedules, transactions]);
+
+  const filteredDashboardActivePos = useMemo(() => {
+    return activePoOverview.summaries.filter((item) => {
+      if (activePoFilterMode === 'ACTIVE') return item.isActivePo;
+      if (activePoFilterMode === 'ON_PROGRESS') return item.hasOnProgressDelivery;
+      return true;
+    });
+  }, [activePoOverview.summaries, activePoFilterMode]);
 
   const isSameLocalDate = (isoString?: string, refDate = new Date()) => {
     if (!isoString) return false;
@@ -842,7 +874,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       </div>
 
       {/* Top Welcome & KPI Metric Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4">
         <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-sm">
           <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
             <span>{kpiScope === 'TODAY' ? 'Tonase Netto Hari Ini' : 'Total Tonase Netto'}</span>
@@ -969,7 +1001,269 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <span className="text-amber-400 font-semibold font-mono-num">{scheduledCount}</span> armada dalam perjalanan (ETA)
           </div>
         </div>
+
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setIsActivePoDetailOpen((prev) => !prev)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setIsActivePoDetailOpen((prev) => !prev);
+            }
+          }}
+          title="Klik untuk melihat detail PO yang masih aktif atau memiliki kiriman on progress"
+          className={`bg-white border rounded-xl p-4 shadow-sm transition-all cursor-pointer select-none ${
+            isActivePoDetailOpen
+              ? 'border-amber-500 ring-2 ring-amber-200/80'
+              : 'border-slate-300 hover:border-amber-400'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-1 mb-1">
+            <span className="text-[11px] text-slate-600 font-medium">Total PO</span>
+            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+              <span>{isActivePoDetailOpen ? 'Tutup Detail' : 'Detail PO'}</span>
+              {isActivePoDetailOpen ? (
+                <ChevronUp className="w-3 h-3" />
+              ) : (
+                <ChevronDown className="w-3 h-3" />
+              )}
+            </span>
+          </div>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-2xl 2xl:text-3xl font-bold text-slate-900 font-mono-num">
+              {purchaseOrders.length}
+            </span>
+            <span className="text-[11px] text-amber-700 font-semibold text-right">
+              {activePoOverview.activeCount} Aktif · {activePoOverview.onProgressCount} On Progress
+            </span>
+          </div>
+          {activePoOverview.summaries.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-1">
+              {activePoOverview.summaries.slice(0, 3).map((item) => (
+                <span
+                  key={item.po.id}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-50 text-amber-900 border border-amber-200"
+                >
+                  <span>{item.po.poNumber}</span>
+                  {item.hasOnProgressDelivery && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-sky-500" title="Ada kiriman on progress" />
+                  )}
+                </span>
+              ))}
+              {activePoOverview.summaries.length > 3 && (
+                <span className="text-[10px] font-semibold text-slate-500">
+                  +{activePoOverview.summaries.length - 3} lainnya
+                </span>
+              )}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Expandable Detail Panel (Hanya muncul saat kartu Total PO diklik) */}
+      {isActivePoDetailOpen && (
+        <div className="bg-white border-2 border-amber-300 rounded-xl p-4 shadow-xs space-y-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-200">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <FileText className="w-4 h-4 text-amber-600" />
+                <span>Detail PO Aktif &amp; Pengiriman On Progress</span>
+              </h3>
+              <p className="text-[11px] text-slate-600 mt-0.5">
+                Menampilkan daftar PO berstatus aktif atau yang masih memiliki jadwal pengiriman / armada dalam proses bongkar.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setActivePoFilterMode('ALL')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
+                  activePoFilterMode === 'ALL'
+                    ? 'bg-amber-500 text-slate-950 border-amber-500'
+                    : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                }`}
+              >
+                Semua ({activePoOverview.summaries.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActivePoFilterMode('ACTIVE')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
+                  activePoFilterMode === 'ACTIVE'
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                }`}
+              >
+                Status Aktif ({activePoOverview.activeCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActivePoFilterMode('ON_PROGRESS')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
+                  activePoFilterMode === 'ON_PROGRESS'
+                    ? 'bg-sky-600 text-white border-sky-600'
+                    : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                }`}
+              >
+                Kiriman On Progress ({activePoOverview.onProgressCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('po')}
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 text-[11px] font-bold rounded-lg transition-colors shadow-2xs cursor-pointer"
+              >
+                <span>Kelola PO</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsActivePoDetailOpen(false)}
+                className="p-1 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                title="Tutup panel detail PO"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {filteredDashboardActivePos.length === 0 ? (
+            <div className="py-6 px-4 text-center text-xs text-slate-500 bg-slate-50 rounded-lg border border-dashed border-slate-300">
+              Belum ada PO aktif atau kiriman yang sedang berjalan saat ini.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {filteredDashboardActivePos.map((item) => {
+                const isAllRitsDone =
+                  item.totalScheduledRits > 0 && item.completedRits >= item.totalScheduledRits;
+
+                return (
+                  <div
+                    key={item.po.id}
+                    className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-300 hover:border-amber-400 transition-colors space-y-2.5 flex flex-col justify-between"
+                  >
+                    <div className="space-y-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-mono text-sm font-black text-amber-900">
+                              {item.po.poNumber}
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-500">
+                              ({item.po.contractDate})
+                            </span>
+                          </div>
+                          <div
+                            className="text-xs font-bold text-slate-900 mt-0.5 truncate"
+                            title={item.po.supplierName}
+                          >
+                            {item.po.supplierName}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              item.isActivePo
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                : 'bg-slate-100 text-slate-600 border-slate-300'
+                            }`}
+                          >
+                            {item.po.status}
+                          </span>
+                          {item.hasOnProgressDelivery && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-sky-50 text-sky-800 border border-sky-300">
+                              <Clock className="w-2.5 h-2.5" />
+                              <span>On Progress</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px] font-mono-num">
+                          <span className="text-slate-600">
+                            Realisasi:{' '}
+                            <strong className="text-emerald-800">
+                              {item.po.receivedTonnage.toLocaleString('id-ID')}
+                            </strong>{' '}
+                            / {item.po.targetTonnage.toLocaleString('id-ID')} Kg
+                          </span>
+                          <span className="font-bold text-slate-900">
+                            {item.progressPct.toFixed(1)}%
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-amber-500 rounded-full transition-all"
+                            style={{ width: `${Math.min(100, item.progressPct)}%` }}
+                          />
+                        </div>
+                        <div className="text-[10px] text-slate-600 font-mono-num flex items-center justify-between">
+                          <span>
+                            Sisa Kuota:{' '}
+                            <strong className="text-amber-800">
+                              {item.remainingKg.toLocaleString('id-ID')} Kg
+                            </strong>
+                          </span>
+                          <span>Tol. ±{item.po.tolerancePercentage}%</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded font-mono-num font-bold border ${
+                            isAllRitsDone
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                              : 'bg-white text-slate-800 border-slate-300'
+                          }`}
+                        >
+                          <Calendar
+                            className={`w-3 h-3 ${isAllRitsDone ? 'text-emerald-600' : 'text-amber-600'}`}
+                          />
+                          <span>
+                            {item.completedRits}/{item.totalScheduledRits} Rit
+                          </span>
+                        </span>
+                        {item.inProgressTxCount > 0 && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-semibold">
+                            {item.inProgressTxCount} truk proses
+                          </span>
+                        )}
+                        {item.pendingScheduleCount > 0 && (
+                          <span className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-900 border border-sky-300 text-[10px] font-semibold">
+                            {item.pendingScheduleCount} rit dlm perjalanan
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onNavigate('schedules')}
+                          className="text-[11px] font-bold text-sky-700 hover:text-sky-900 underline cursor-pointer"
+                        >
+                          Jadwal
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onNavigate('po')}
+                          className="text-[11px] font-bold text-amber-800 hover:text-amber-950 underline cursor-pointer"
+                        >
+                          Menu PO →
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* NOTIFIKASI PERINGATAN: JADWAL KIRIMAN BELUM ADA KEDATANGAN DI POS SECURITY */}
@@ -2789,7 +3083,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                                         <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">Done</span>
                                       </div>
                                       <div className="text-[10px] font-mono-num text-slate-700">
-                                        Tgl: <strong className="text-slate-950 font-bold">{formattedArrivalDate}</strong>
+                                        Tgl: <strong className="text-slate-950 font-bold">{checkpoints[0]?.formattedDate || formattedArrivalDate}</strong>
                                       </div>
                                       <div className="text-[11px] font-mono-num text-slate-700">
                                         Waktu: <strong className="text-slate-950 font-bold">{checkpoints[0]?.formattedTime} WIB</strong>
@@ -2828,6 +3122,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                                           </span>
                                         )}
                                       </div>
+                                      <div className="text-[10px] font-mono-num text-slate-700">
+                                        Tgl: <strong className="text-slate-950 font-bold">{checkpoints[1]?.formattedDate || '-'}</strong>
+                                      </div>
                                       <div className="text-[11px] font-mono-num text-slate-700">
                                         Waktu: <strong className="text-slate-950 font-bold">{checkpoints[1]?.formattedTime} {checkpoints[1]?.formattedTime !== '-' ? 'WIB' : ''}</strong>
                                       </div>
@@ -2864,6 +3161,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                                             {checkpoints[2]?.durationFromPrevious}
                                           </span>
                                         )}
+                                      </div>
+                                      <div className="text-[10px] font-mono-num text-slate-700">
+                                        Tgl: <strong className="text-slate-950 font-bold">{checkpoints[2]?.formattedDate || '-'}</strong>
                                       </div>
                                       <div className="text-[11px] font-mono-num text-slate-700">
                                         Waktu: <strong className="text-slate-950 font-bold">{checkpoints[2]?.formattedTime} {checkpoints[2]?.formattedTime !== '-' ? 'WIB' : ''}</strong>
@@ -2902,6 +3202,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                                           </span>
                                         )}
                                       </div>
+                                      <div className="text-[10px] font-mono-num text-slate-700">
+                                        Tgl: <strong className="text-slate-950 font-bold">{checkpoints[3]?.formattedDate || '-'}</strong>
+                                      </div>
                                       <div className="text-[11px] font-mono-num text-slate-700">
                                         Waktu: <strong className="text-slate-950 font-bold">{checkpoints[3]?.formattedTime} {checkpoints[3]?.formattedTime !== '-' ? 'WIB' : ''}</strong>
                                       </div>
@@ -2938,6 +3241,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                                             {checkpoints[4]?.durationFromPrevious}
                                           </span>
                                         )}
+                                      </div>
+                                      <div className="text-[10px] font-mono-num text-slate-700">
+                                        Tgl: <strong className="text-slate-950 font-bold">{checkpoints[4]?.formattedDate || '-'}</strong>
                                       </div>
                                       <div className="text-[11px] font-mono-num text-slate-700">
                                         Waktu: <strong className="text-slate-950 font-bold">{checkpoints[4]?.formattedTime} {checkpoints[4]?.formattedTime !== '-' ? 'WIB' : ''}</strong>
