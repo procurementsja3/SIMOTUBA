@@ -78,7 +78,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const [histColDate, setHistColDate] = useState('');
   const [histColTimeline, setHistColTimeline] = useState('');
   const [historyPage, setHistoryPage] = useState<number>(1);
-  const HISTORY_PAGE_SIZE = 8;
+  const HISTORY_PAGE_SIZE = 5;
 
   // Filter khusus untuk tabel Monitoring Outstanding PO & Toleransi (+/- 5%)
   const [toleranceTypeFilter, setToleranceTypeFilter] = useState<'ALL' | 'UNDER_5' | 'WITHIN_5' | 'OVER_5'>('ALL');
@@ -2664,7 +2664,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
         </div>
 
-        {/* List of Vehicles with Expandable Sub-Process Breakdown (8 data per halaman + Pagination) */}
+        {/* List of Vehicles with Expandable Sub-Process Breakdown (5 data per halaman + Pagination) */}
         {transactions.length === 0 ? (
           <div className="text-center py-10 bg-slate-950/40 border border-dashed border-slate-800 rounded-xl text-slate-500">
             <Clock className="w-10 h-10 mx-auto mb-2 text-slate-600" />
